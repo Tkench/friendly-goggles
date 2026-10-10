@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Brick Finder</title>
+  <meta name="description" content="Track missing pieces for your LEGO sets and find out which set a piece belongs to.">
+  <meta name="theme-color" content="#d01012">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Brick Finder">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="back hidden" id="backBtn" aria-label="Back">‹</button>
+    <h1 id="title">Brick Finder</h1>
+    <span class="spacer"></span>
+  </header>
+
+  <main id="view"></main>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="sets"><span class="ico">🧱</span>Sets</button>
+    <button data-tab="missing"><span class="ico">🔎</span>Looking for</button>
+    <button data-tab="scan"><span class="ico">📷</span>Scan</button>
+    <button data-tab="settings"><span class="ico">⚙️</span>Settings</button>
+  </nav>
+
+  <div id="toast" class="toast hidden"></div>
+  <div id="sheet" class="sheet hidden"></div>
+
+  <!-- Hidden camera input used by the Scan screen -->
+  <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+
+  <script src="app.js"></script>
+</body>
+</html>
