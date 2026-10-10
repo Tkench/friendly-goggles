@@ -95,6 +95,7 @@ main { padding: 12px 16px 24px; max-width: 900px; margin: 0 auto; }
   background: var(--chip); color: var(--text); min-height: 46px;
 }
 .btn.primary { background: var(--brand); color: var(--brand-ink); }
+.btn.danger { background: #b91c1c; color: #fff; }
 .btn.ok { background: var(--ok); color: #fff; }
 .btn.block { width: 100%; }
 .btn.small { min-height: 36px; padding: 6px 12px; font-size: 14px; border-radius: 10px; }

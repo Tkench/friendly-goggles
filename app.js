@@ -214,10 +214,16 @@ function changeHave(setNum, key, delta, { withUndo = false } = {}) {
   }
 }
 
-function deleteSet(setNum) {
+async function deleteSet(setNum) {
   const set = state.sets[setNum];
   if (!set) return false;
-  if (!confirm(`Delete "${set.name}" (#${shortSetNum(setNum)})?\n\nIts parts list and your ticks will be removed from this phone. You can add the set again later, but you'd need to re-tick the pieces.`)) return false;
+  const ok = await askConfirm({
+    title: `Delete ${set.name} (#${shortSetNum(setNum)})?`,
+    text: "Its parts list and your ticks will be removed from this phone. You can add the set again later, but you'd need to re-tick the pieces.",
+    ok: 'Delete set',
+    danger: true,
+  });
+  if (!ok || !state.sets[setNum]) return false;
   delete state.sets[setNum];
   save();
   toast(`Deleted ${set.name}`);
@@ -254,6 +260,27 @@ function openSheet(html) {
   el.classList.remove('hidden');
   el.onclick = (e) => { if (e.target === el || e.target.closest('[data-close]')) closeSheet(); };
 }
+// In-app "are you sure?" panel. Used instead of the browser's confirm box,
+// which phone browsers can silently block (e.g. after "don't allow more dialogs").
+function askConfirm({ title, text = '', ok = 'OK', danger = false }) {
+  return new Promise((resolve) => {
+    openSheet(`
+      <h2>${esc(title)}</h2>
+      ${text ? `<p class="muted">${esc(text)}</p>` : ''}
+      <p></p>
+      <button class="btn block ${danger ? 'danger' : 'primary'}" data-answer="yes">${esc(ok)}</button>
+      <p></p>
+      <button class="btn block" data-answer="no">Cancel</button>`);
+    const el = $('#sheet');
+    el.onclick = (e) => {
+      const answer = e.target.closest('[data-answer]')?.dataset.answer;
+      if (e.target !== el && !answer) return;
+      closeSheet();
+      resolve(answer === 'yes');
+    };
+  });
+}
+
 function closeSheet() {
   $('#sheet').classList.add('hidden');
   $('#sheet').innerHTML = '';
@@ -360,7 +387,7 @@ function renderSets() {
   document.querySelectorAll('[data-set]').forEach((el) => {
     el.onclick = (e) => {
       const del = e.target.closest('[data-del]');
-      if (del) { if (deleteSet(del.dataset.del)) renderSets(); return; }
+      if (del) { deleteSet(del.dataset.del).then((gone) => gone && renderSets()); return; }
       go('#set/' + encodeURIComponent(el.dataset.set));
     };
   });
@@ -492,7 +519,7 @@ function renderSet(setNum) {
       <h2>Set options</h2>
       <div class="row" style="flex-wrap:wrap">
         <button class="btn small" id="allHave">Tick all as have</button>
-        <button class="btn small" id="allMissing">Mark all missing</button>
+        <button class="btn small" id="allMissing">Untick all (start again)</button>
         <button class="btn small" id="refresh">Re-download list</button>
         <button class="btn small" id="del" style="color:var(--miss)">Delete set</button>
       </div>
@@ -515,11 +542,22 @@ function renderSet(setNum) {
       window.scrollTo(0, y);
     };
   });
-  $('#allHave').onclick = () => { if (confirm('Tick every piece as have?')) { setAllHave(setNum, true); renderSet(setNum); } };
-  $('#allMissing').onclick = () => { if (confirm('Mark every piece as missing?')) { setAllHave(setNum, false); renderSet(setNum); } };
+  $('#allHave').onclick = async () => {
+    if (!await askConfirm({ title: 'Tick every piece as have?', text: 'Every piece in this set will be marked as found.', ok: 'Tick all' })) return;
+    setAllHave(setNum, true);
+    if (route().arg === setNum) renderSet(setNum);
+    toast('All pieces ticked');
+  };
+  $('#allMissing').onclick = async () => {
+    if (!await askConfirm({ title: 'Untick every piece?', text: 'This clears all your ticks for this set so you can start again. Every piece will show as missing.', ok: 'Untick all', danger: true })) return;
+    setAllHave(setNum, false);
+    ui.setFilter = 'missing';
+    if (route().arg === setNum) { renderSet(setNum); window.scrollTo(0, 0); }
+    toast('All pieces unticked — starting again');
+  };
   const delBtn = $('#delBtn');
   delBtn.classList.remove('hidden');
-  $('#del').onclick = delBtn.onclick = () => { if (deleteSet(setNum)) go('#sets'); };
+  $('#del').onclick = delBtn.onclick = async () => { if (await deleteSet(setNum)) go('#sets'); };
   $('#refresh').onclick = async () => {
     try {
       toast('Downloading…');
@@ -847,7 +885,7 @@ function renderSettings() {
       const data = JSON.parse(await file.text());
       if (!data || typeof data.sets !== 'object') throw new Error('Not a Brick Finder backup file');
       const n = Object.keys(data.sets).length;
-      if (!confirm(`Restore ${n} sets from this backup? Sets with the same number on this phone will be replaced.`)) return;
+      if (!await askConfirm({ title: `Restore ${n} sets from this backup?`, text: 'Sets with the same number on this phone will be replaced.', ok: 'Restore' })) return;
       Object.assign(state.sets, data.sets); save();
       toast(`Restored ${n} sets`); renderSettings();
     } catch (err) { toast('Could not restore: ' + err.message); }
