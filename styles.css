@@ -54,6 +54,14 @@ input, select { font: inherit; }
 }
 .topbar h1 { font-size: 19px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar .spacer { flex: 1; }
+.topbar .topbtn {
+  background: rgba(255,255,255,.18); border: 0; color: inherit; font-size: 20px;
+  width: 42px; height: 42px; border-radius: 10px; flex: none;
+}
+.icon-btn {
+  background: var(--chip); border: 0; border-radius: 10px; width: 42px; height: 42px; flex: none;
+  font-size: 18px; align-self: flex-start;
+}
 .topbar .back {
   background: none; border: 0; color: inherit; font-size: 34px; line-height: 1;
   padding: 0 8px 4px 0;

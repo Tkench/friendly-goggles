@@ -214,6 +214,16 @@ function changeHave(setNum, key, delta, { withUndo = false } = {}) {
   }
 }
 
+function deleteSet(setNum) {
+  const set = state.sets[setNum];
+  if (!set) return false;
+  if (!confirm(`Delete "${set.name}" (#${shortSetNum(setNum)})?\n\nIts parts list and your ticks will be removed from this phone. You can add the set again later, but you'd need to re-tick the pieces.`)) return false;
+  delete state.sets[setNum];
+  save();
+  toast(`Deleted ${set.name}`);
+  return true;
+}
+
 function setAllHave(setNum, value) {
   const set = state.sets[setNum];
   for (const p of set.parts) p.have = value ? p.qty : 0;
@@ -269,6 +279,7 @@ function render() {
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   const back = $('#backBtn');
   back.classList.toggle('hidden', !(r.name === 'set' || r.name === 'add'));
+  $('#delBtn').classList.add('hidden'); // renderSet shows it for the open set
 
   if (!state.apiKey && r.name !== 'settings') return renderWelcome();
 
@@ -338,6 +349,7 @@ function renderSets() {
                 : `<span class="badge ok">Complete ✓</span> <span class="muted">${st.need} pieces</span>`}
             </div>
           </div>
+          <button class="icon-btn" data-del="${esc(s.setNum)}" aria-label="Delete ${esc(s.name)}">🗑</button>
         </div>`;
     }
   }
@@ -346,7 +358,11 @@ function renderSets() {
   const ss = $('#setSearch');
   if (ss) ss.oninput = () => { ui.setSearch = ss.value; renderSetsKeepFocus(); };
   document.querySelectorAll('[data-set]').forEach((el) => {
-    el.onclick = () => go('#set/' + encodeURIComponent(el.dataset.set));
+    el.onclick = (e) => {
+      const del = e.target.closest('[data-del]');
+      if (del) { if (deleteSet(del.dataset.del)) renderSets(); return; }
+      go('#set/' + encodeURIComponent(el.dataset.set));
+    };
   });
 }
 
@@ -501,11 +517,9 @@ function renderSet(setNum) {
   });
   $('#allHave').onclick = () => { if (confirm('Tick every piece as have?')) { setAllHave(setNum, true); renderSet(setNum); } };
   $('#allMissing').onclick = () => { if (confirm('Mark every piece as missing?')) { setAllHave(setNum, false); renderSet(setNum); } };
-  $('#del').onclick = () => {
-    if (confirm(`Delete ${set.name}? Your ticks for this set will be lost.`)) {
-      delete state.sets[setNum]; save(); go('#sets');
-    }
-  };
+  const delBtn = $('#delBtn');
+  delBtn.classList.remove('hidden');
+  $('#del').onclick = delBtn.onclick = () => { if (deleteSet(setNum)) go('#sets'); };
   $('#refresh').onclick = async () => {
     try {
       toast('Downloading…');
