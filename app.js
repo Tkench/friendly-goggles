@@ -13,7 +13,7 @@ const BRICKOGNIZE_API = 'https://api.brickognize.com/predict/parts/';
 /* ---------- State ---------- */
 
 let state = load();
-let ui = { setFilter: 'missing', missingColor: '', missingSearch: '', setSearch: '', missingView: loadPref('missingView', 'list') };
+let ui = { setFilter: 'missing', missingColor: '', missingSearch: '', setSearch: '', missingView: loadPref('missingView', 'list'), missingType: '', setSort: loadPref('setSort', 'closest') };
 let lastUndo = null;
 let scanState = null; // { photoUrl, loading, error, items }
 
@@ -74,6 +74,27 @@ function sortedSets() {
   return Object.values(state.sets).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
 }
 
+// Simple piece types for filtering. Uses Rebrickable's category when we have
+// it, otherwise the part name (which starts with "Brick", "Plate", "Tile"…).
+const PIECE_TYPES = ['Bricks', 'Plates', 'Tiles', 'Slopes', 'Minifigure parts', 'Technic', 'Wheels', 'Windows & doors', 'Other'];
+
+function pieceType(p) {
+  const t = (p.catName || p.name || '').toLowerCase();
+  if (/minifig/.test(t)) return 'Minifigure parts';
+  if (/^technic/.test(t)) return 'Technic';
+  if (/slope|wedge(?! plate)/.test(t) && !/^(plate|tile)/.test(t)) return 'Slopes';
+  if (/^bricks?\b/.test(t)) return 'Bricks';
+  if (/^(plates?|baseplates?)\b|^wedge plate/.test(t)) return 'Plates';
+  if (/^tiles?\b/.test(t)) return 'Tiles';
+  if (/wheel|tyre|tire/.test(t)) return 'Wheels';
+  if (/window|door|glass for|shutter/.test(t)) return 'Windows & doors';
+  // Names like "Round Brick 1 x 1" or "Cone 1 x 1" (older saved sets have no category).
+  if (/\bbricks?\b|^cone\b/.test(t)) return 'Bricks';
+  if (/\bplates?\b/.test(t)) return 'Plates';
+  if (/\btiles?\b/.test(t)) return 'Tiles';
+  return 'Other';
+}
+
 function swatch(rgb) {
   return `<span class="swatch" style="background:#${esc(rgb || 'ccc')}"></span>`;
 }
@@ -101,8 +122,22 @@ async function rbFetch(url) {
   return res.json();
 }
 
+async function partCategories() {
+  if (state.partCats && Object.keys(state.partCats).length) return state.partCats;
+  try {
+    const data = await rbFetch(`${RB_API}/part_categories/?page_size=1000`);
+    state.partCats = Object.fromEntries(data.results.map((c) => [c.id, c.name]));
+    save();
+  } catch (e) {
+    console.warn('Could not load part categories', e);
+    return {};
+  }
+  return state.partCats;
+}
+
 async function fetchSet(setNum) {
   const info = await rbFetch(`${RB_API}/sets/${encodeURIComponent(setNum)}/`);
+  const cats = await partCategories();
   const merged = new Map();
   let url = `${RB_API}/sets/${encodeURIComponent(setNum)}/parts/?page_size=1000&inc_minifig_parts=1&inc_part_details=1`;
   while (url) {
@@ -117,6 +152,7 @@ async function fetchSet(setNum) {
         key,
         partNum: r.part.part_num,
         name: r.part.name,
+        catName: cats[r.part.part_cat_id] || '',
         img: r.element_img_url || r.part.part_img_url || '',
         colorId: r.color.id,
         colorName: r.color.name,
@@ -348,13 +384,32 @@ function renderWelcome() {
   };
 }
 
+// Sets still missing pieces come first, fewest missing at the top; complete sets last.
+function setsClosestFirst() {
+  return sortedSets()
+    .map((s) => ({ s, st: setStats(s) }))
+    .sort((a, b) => {
+      const aDone = a.st.missing === 0, bDone = b.st.missing === 0;
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      return a.st.missing - b.st.missing || (b.st.have / (b.st.need || 1)) - (a.st.have / (a.st.need || 1));
+    })
+    .map((x) => x.s);
+}
+
 function renderSets() {
   setTitle('My sets');
-  const sets = sortedSets();
+  const sets = ui.setSort === 'closest' ? setsClosestFirst() : sortedSets();
   let html = `<button class="btn primary block" id="addBtn">＋ Add a set</button><p></p>`;
   if (!sets.length) {
     html += `<div class="empty"><div class="big">🧱</div>No sets yet.<br>Tap <b>Add a set</b> and enter the set number from the manual cover.</div>`;
   } else {
+    if (sets.length > 1) {
+      html += `
+        <div class="seg" id="setSort">
+          <button data-v="closest" class="${ui.setSort === 'closest' ? 'active' : ''}">Closest to finished</button>
+          <button data-v="newest" class="${ui.setSort === 'newest' ? 'active' : ''}">Newest added</button>
+        </div>`;
+    }
     if (sets.length > 4) {
       html += `<input class="field" id="setSearch" placeholder="Search sets…" value="${esc(ui.setSearch)}"><p></p>`;
     }
@@ -382,6 +437,9 @@ function renderSets() {
   }
   $('#view').innerHTML = html;
   $('#addBtn').onclick = () => go('#add');
+  document.querySelectorAll('#setSort button').forEach((b) => {
+    b.onclick = () => { ui.setSort = b.dataset.v; savePref('setSort', b.dataset.v); renderSets(); };
+  });
   const ss = $('#setSearch');
   if (ss) ss.oninput = () => { ui.setSearch = ss.value; renderSetsKeepFocus(); };
   document.querySelectorAll('[data-set]').forEach((el) => {
@@ -602,30 +660,45 @@ function renderMissing() {
     return;
   }
 
-  // Colour chips (most common colours first)
+  for (const g of all) g.type = pieceType(g.part);
+
+  // Colour chips (most common first). Each row's counts respect the other filter.
   const colors = new Map();
   for (const g of all) {
     const c = colors.get(g.part.colorName) || { name: g.part.colorName, rgb: g.part.rgb, n: 0 };
-    c.n += g.total; colors.set(c.name, c);
+    if (!ui.missingType || g.type === ui.missingType) c.n += g.total;
+    colors.set(c.name, c);
   }
-  const colorList = [...colors.values()].sort((a, b) => b.n - a.n);
+  const colorList = [...colors.values()].filter((c) => c.n || c.name === ui.missingColor).sort((a, b) => b.n - a.n);
   if (ui.missingColor && !colors.has(ui.missingColor)) ui.missingColor = '';
+
+  const types = new Map(PIECE_TYPES.map((t) => [t, 0]));
+  for (const g of all) {
+    if (!ui.missingColor || g.part.colorName === ui.missingColor) types.set(g.type, types.get(g.type) + g.total);
+  }
+  if (ui.missingType && !all.some((g) => g.type === ui.missingType)) ui.missingType = '';
+  const typeList = PIECE_TYPES.filter((t) => types.get(t) || t === ui.missingType);
 
   const q = ui.missingSearch.trim().toLowerCase();
   const shown = all.filter((g) =>
     (!ui.missingColor || g.part.colorName === ui.missingColor) &&
+    (!ui.missingType || g.type === ui.missingType) &&
     (!q || g.part.name.toLowerCase().includes(q) || g.part.partNum.toLowerCase().includes(q) ||
       g.part.colorName.toLowerCase().includes(q)));
   shown.sort((a, b) => a.part.colorName.localeCompare(b.part.colorName) || a.part.name.localeCompare(b.part.name));
 
   const totalPieces = all.reduce((n, g) => n + g.total, 0);
   let html = `
-    <p class="muted small">${totalPieces} pieces missing across ${new Set(all.flatMap((g) => g.sets.map((s) => s.set.setNum))).size} sets. Sorting a pile by colour? Pick a colour below.</p>
+    <p class="muted small">${totalPieces} pieces missing across ${new Set(all.flatMap((g) => g.sets.map((s) => s.set.setNum))).size} sets. Sorting a pile? Pick a colour and a type of piece below.</p>
     <input class="field" id="mSearch" type="search" placeholder="Search by name or part number…" value="${esc(ui.missingSearch)}">
     <p></p>
     <div class="chips">
       <button class="chip ${!ui.missingColor ? 'active' : ''}" data-color="">All colours</button>
       ${colorList.map((c) => `<button class="chip ${ui.missingColor === c.name ? 'active' : ''}" data-color="${esc(c.name)}">${swatch(c.rgb)}${esc(c.name)} (${c.n})</button>`).join('')}
+    </div>
+    <div class="chips">
+      <button class="chip ${!ui.missingType ? 'active' : ''}" data-type="">All types</button>
+      ${typeList.map((t) => `<button class="chip ${ui.missingType === t ? 'active' : ''}" data-type="${esc(t)}">${esc(t)} (${types.get(t)})</button>`).join('')}
     </div>
     <div class="seg" id="mView">
       <button data-v="list" class="${ui.missingView === 'list' ? 'active' : ''}">☰ List with sets</button>
@@ -674,6 +747,9 @@ function renderMissing() {
   };
   document.querySelectorAll('[data-color]').forEach((b) => {
     b.onclick = () => { ui.missingColor = b.dataset.color; renderMissing(); };
+  });
+  document.querySelectorAll('[data-type]').forEach((b) => {
+    b.onclick = () => { ui.missingType = b.dataset.type; renderMissing(); };
   });
   document.querySelectorAll('[data-found]').forEach((b) => {
     b.onclick = () => {

@@ -123,6 +123,7 @@ label.lbl { display: block; font-weight: 600; margin: 10px 0 6px; }
 .set-card img {
   width: 84px; height: 64px; object-fit: contain; background: #fff; border-radius: 8px; flex: none;
 }
+.set-card > .grow { flex: 1; min-width: 0; }
 .set-card .name { font-weight: 600; line-height: 1.25; }
 .progress { height: 8px; border-radius: 4px; background: var(--chip); overflow: hidden; margin-top: 6px; }
 .progress > div { height: 100%; background: var(--ok); }
