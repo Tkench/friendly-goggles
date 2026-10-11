@@ -478,7 +478,6 @@ function renderSet(setNum) {
         </div>
       </div>
     </div>
-    <button class="btn block" id="instrBtn" style="margin-bottom:12px">📖 Building instructions</button>
     <div class="seg" id="filter">
       <button data-f="missing" class="${f === 'missing' ? 'active' : ''}">Missing (${st.kindsMissing})</button>
       <button data-f="have" class="${f === 'have' ? 'active' : ''}">Have (${st.kinds - st.kindsMissing})</button>
@@ -556,7 +555,6 @@ function renderSet(setNum) {
     if (route().arg === setNum) { renderSet(setNum); window.scrollTo(0, 0); }
     toast('All pieces unticked — starting again');
   };
-  $('#instrBtn').onclick = () => showInstructions(set);
   const delBtn = $('#delBtn');
   delBtn.classList.remove('hidden');
   $('#del').onclick = delBtn.onclick = async () => { if (await deleteSet(setNum)) go('#sets'); };
@@ -695,20 +693,6 @@ function renderMissing() {
   document.querySelectorAll('.need-item .pic').forEach((el) => {
     el.onclick = () => showPartSheet(el.closest('[data-key]').dataset.key);
   });
-}
-
-// Instruction PDFs can't be shown inside the app (the sites don't allow it),
-// so link out to the two places that host them.
-function showInstructions(set) {
-  const num = shortSetNum(set.setNum);
-  openSheet(`
-    <h2>📖 Instructions for ${esc(set.name)}</h2>
-    <p class="muted small">These open in your browser. Pick a booklet and it opens as a PDF you can scroll through while you build.</p>
-    <a class="btn primary block" href="https://brickset.com/instructions/${encodeURIComponent(set.setNum)}" target="_blank" rel="noopener">Brickset — best for older sets</a>
-    <p></p>
-    <a class="btn block" href="https://www.lego.com/service/building-instructions/${encodeURIComponent(num)}" target="_blank" rel="noopener">LEGO.com — official site</a>
-    <p class="muted small">Not every old set has been scanned. If neither site has it, try searching the web for "LEGO ${esc(num)} instructions".</p>
-    <button class="btn block" data-close>Close</button>`);
 }
 
 function showPartSheet(key) {
