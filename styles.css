@@ -131,6 +131,8 @@ label.lbl { display: block; font-weight: 600; margin: 10px 0 6px; }
   display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 13px; font-weight: 600;
 }
 .badge.miss { background: var(--miss-bg); color: var(--miss); }
+.badge.swap { background: #e0ecff; color: #1d4ed8; }
+@media (prefers-color-scheme: dark) { .badge.swap { background: #172554; color: #93c5fd; } }
 .badge.ok { background: var(--ok-bg); color: var(--ok); }
 
 /* Filters */
@@ -248,3 +250,10 @@ label.lbl { display: block; font-weight: 600; margin: 10px 0 6px; }
 }
 .sheet .big-pic { background: #fff; border-radius: 12px; display: flex; justify-content: center; padding: 10px; }
 .sheet .big-pic img { width: 70%; max-width: 280px; aspect-ratio: 1/1; object-fit: contain; }
+
+/* Values & swaps */
+.value { color: var(--text); }
+.value-btn { margin-top: 8px; }
+.swap-box { border: 2px solid #1d4ed8; }
+.swap-box h2 { font-size: 16px; }
+a.btn { text-decoration: none; }

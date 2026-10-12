@@ -9,6 +9,8 @@
 const STORE_KEY = 'brickfinder.v1';
 const RB_API = 'https://rebrickable.com/api/v3/lego';
 const BRICKOGNIZE_API = 'https://api.brickognize.com/predict/parts/';
+// Tip jar link (Ko-fi / Buy Me a Coffee). The Support button stays hidden while this is empty.
+const TIP_URL = '';
 
 /* ---------- State ---------- */
 
@@ -396,9 +398,113 @@ function setsClosestFirst() {
     .map((x) => x.s);
 }
 
+const hasValue = (s) => typeof s.value === 'number' && s.value > 0;
+
+function money(v) {
+  return '£' + (Number.isInteger(v) ? v : v.toFixed(2));
+}
+
+function priceGuideUrl(setNum) {
+  return `https://www.bricklink.com/catalogPG.asp?S=${encodeURIComponent(setNum)}`;
+}
+
+// Best value for the work left: valued sets ranked by £ per missing piece,
+// then unvalued sets by fewest missing; complete sets last.
+function setsWorthFirst() {
+  const rank = ({ s, st }) => (st.missing === 0 ? 2 : hasValue(s) ? 0 : 1);
+  return sortedSets()
+    .map((s) => ({ s, st: setStats(s) }))
+    .sort((a, b) => rank(a) - rank(b) ||
+      (rank(a) === 0 ? b.s.value / b.st.missing - a.s.value / a.st.missing : a.st.missing - b.st.missing))
+    .map((x) => x.s);
+}
+
+/* ---------- Swaps between sets ----------
+ * A piece ticked as found in one set can be moved to another set that needs
+ * the same piece in the same colour. Only suggest taking from sets that have
+ * more left to find and, when both have a value, are also worth less.
+ */
+function canTakeFrom(from, to, stats) {
+  if (from === to) return false;
+  if (stats.get(from.setNum).missing <= stats.get(to.setNum).missing) return false;
+  return !(hasValue(from) && hasValue(to)) || from.value < to.value;
+}
+
+function swapIndex() {
+  const byKey = new Map();
+  const stats = new Map();
+  for (const set of Object.values(state.sets)) {
+    stats.set(set.setNum, setStats(set));
+    for (const p of set.parts) {
+      if (p.have <= 0) continue;
+      if (!byKey.has(p.key)) byKey.set(p.key, []);
+      byKey.get(p.key).push({ set, part: p });
+    }
+  }
+  return { byKey, stats };
+}
+
+function swapsFor(target, index = swapIndex()) {
+  const { byKey, stats } = index;
+  const moves = [];
+  for (const p of target.parts) {
+    let need = p.qty - p.have;
+    if (need <= 0) continue;
+    const donors = (byKey.get(p.key) || [])
+      .filter((d) => canTakeFrom(d.set, target, stats))
+      // Known cheaper sets first, then sets without a value; most missing first within each.
+      .sort((a, b) => (hasValue(b.set) - hasValue(a.set)) ||
+        (a.set.value || 0) - (b.set.value || 0) ||
+        stats.get(b.set.setNum).missing - stats.get(a.set.setNum).missing);
+    for (const d of donors) {
+      if (need <= 0) break;
+      const qty = Math.min(need, d.part.have);
+      moves.push({ part: p, from: d.set, fromPart: d.part, qty });
+      need -= qty;
+    }
+  }
+  return moves;
+}
+
+function moveBetweenSets(target, move) {
+  const { part, from, fromPart } = move;
+  const qty = Math.min(move.qty, fromPart.have, part.qty - part.have);
+  if (qty <= 0) return;
+  part.have += qty;
+  fromPart.have -= qty;
+  save();
+  buzz();
+  lastUndo = () => { part.have -= qty; fromPart.have += qty; save(); render(); };
+  toast(`🔁 Moved ${qty}× ${part.name} from ${from.name}`, true);
+}
+
+function editValue(set) {
+  openSheet(`
+    <h2>Value of ${esc(set.name)}</h2>
+    <p class="muted small">Open the price guide, look at <b>Last 6 months sales → Used → Avg Price</b>, then type it in below.</p>
+    <a class="btn block" href="${priceGuideUrl(set.setNum)}" target="_blank" rel="noopener">💷 See prices on BrickLink ↗</a>
+    <label class="lbl" for="valInput">Value (£)</label>
+    <input class="field" id="valInput" type="number" inputmode="decimal" min="0" step="0.01" placeholder="e.g. 45" value="${hasValue(set) ? set.value : ''}">
+    <p></p>
+    <button class="btn primary block" id="valSave">Save</button>
+    <p></p>
+    <button class="btn block" data-close>Cancel</button>`);
+  const save_ = () => {
+    const v = parseFloat($('#valInput').value);
+    if (v > 0) set.value = Math.round(v * 100) / 100; else delete set.value;
+    save();
+    closeSheet();
+    render();
+    toast(hasValue(set) ? `Value saved: ${money(set.value)}` : 'Value removed');
+  };
+  $('#valSave').onclick = save_;
+  $('#valInput').onkeydown = (e) => { if (e.key === 'Enter') save_(); };
+}
+
 function renderSets() {
   setTitle('My sets');
-  const sets = ui.setSort === 'closest' ? setsClosestFirst() : sortedSets();
+  const sets = ui.setSort === 'worth' ? setsWorthFirst() : ui.setSort === 'closest' ? setsClosestFirst() : sortedSets();
+  const index = swapIndex();
   let html = `<button class="btn primary block" id="addBtn">＋ Add a set</button><p></p>`;
   if (!sets.length) {
     html += `<div class="empty"><div class="big">🧱</div>No sets yet.<br>Tap <b>Add a set</b> and enter the set number from the manual cover.</div>`;
@@ -406,9 +512,17 @@ function renderSets() {
     if (sets.length > 1) {
       html += `
         <div class="seg" id="setSort">
-          <button data-v="closest" class="${ui.setSort === 'closest' ? 'active' : ''}">Closest to finished</button>
-          <button data-v="newest" class="${ui.setSort === 'newest' ? 'active' : ''}">Newest added</button>
+          <button data-v="worth" class="${ui.setSort === 'worth' ? 'active' : ''}">Worth finishing</button>
+          <button data-v="closest" class="${ui.setSort === 'closest' ? 'active' : ''}">Closest</button>
+          <button data-v="newest" class="${ui.setSort === 'newest' ? 'active' : ''}">Newest</button>
         </div>`;
+      const valued = sets.filter(hasValue);
+      html += `<p class="muted small">${valued.length
+        ? `Total value: <b>${money(valued.reduce((t, s) => t + s.value, 0))}</b> (${valued.length} of ${sets.length} sets valued)`
+        : 'Tip: add a value to each set (open the set and tap <b>Add value</b>) to see which are worth finishing first.'}</p>`;
+      if (ui.setSort === 'worth' && valued.length) {
+        html += `<p class="muted small">Sets with the most value per missing piece are at the top.</p>`;
+      }
     }
     if (sets.length > 4) {
       html += `<input class="field" id="setSearch" placeholder="Search sets…" value="${esc(ui.setSearch)}"><p></p>`;
@@ -418,22 +532,27 @@ function renderSets() {
       if (q && !(s.name.toLowerCase().includes(q) || s.setNum.toLowerCase().includes(q))) continue;
       const st = setStats(s);
       const pct = st.need ? Math.round((st.have / st.need) * 100) : 100;
+      const swapCount = st.missing ? swapsFor(s, index).reduce((t, m) => t + m.qty, 0) : 0;
       html += `
         <div class="card set-card" data-set="${esc(s.setNum)}">
           ${s.img ? `<img src="${esc(s.img)}" alt="" loading="lazy">` : ''}
           <div class="grow">
             <div class="name">${esc(s.name)}</div>
-            <div class="muted small">#${esc(shortSetNum(s.setNum))} · ${esc(s.year)}</div>
+            <div class="muted small">#${esc(shortSetNum(s.setNum))} · ${esc(s.year)}${hasValue(s) ? ` · <b class="value">${money(s.value)}</b>` : ''}</div>
             <div class="progress"><div style="width:${pct}%"></div></div>
             <div class="small" style="margin-top:4px">
               ${st.missing
                 ? `<span class="badge miss">${st.missing} missing</span> <span class="muted">${st.have}/${st.need} pieces</span>`
                 : `<span class="badge ok">Complete ✓</span> <span class="muted">${st.need} pieces</span>`}
             </div>
+            ${swapCount ? `<div class="small" style="margin-top:4px"><span class="badge swap">🔁 ${swapCount} can be swapped in</span></div>` : ''}
           </div>
           <button class="icon-btn" data-del="${esc(s.setNum)}" aria-label="Delete ${esc(s.name)}">🗑</button>
         </div>`;
     }
+  }
+  if (TIP_URL && sets.length) {
+    html += `<p class="center small muted" style="margin-top:20px">Enjoying Brick Finder? <a href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a></p>`;
   }
   $('#view').innerHTML = html;
   $('#addBtn').onclick = () => go('#add');
@@ -515,6 +634,34 @@ function renderAdd() {
   input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
 }
 
+function renderSwapBox(set) {
+  const swaps = swapsFor(set);
+  if (!swaps.length) return '';
+  const st = setStats(set);
+  const total = swaps.reduce((t, m) => t + m.qty, 0);
+  const stats = new Map(Object.values(state.sets).map((s) => [s.setNum, setStats(s)]));
+  return `
+    <div class="card swap-box">
+      <h2>🔁 ${total} of ${st.missing} missing ${st.missing === 1 ? 'piece is' : 'pieces are'} in your other sets</h2>
+      <p class="muted small">These sets have more left to find${hasValue(set) ? ' (and are worth less, where you\'ve added values)' : ''}, so it makes sense to move the pieces here. <b>Move</b> updates both sets.</p>
+      ${swaps.map((m, i) => {
+        const fst = stats.get(m.from.setNum);
+        return `
+        <div class="for-set">
+          <div class="row grow" style="min-width:0">
+            <div class="thumb">${partImg(m.part)}</div>
+            <div class="grow" style="min-width:0">
+              <div class="sname"><b>${m.qty}× ${esc(m.part.name)}</b></div>
+              <div class="small muted">${swatch(m.part.rgb)} ${esc(m.part.colorName)}</div>
+              <div class="small">from <b>${esc(m.from.name)}</b> <span class="muted">#${esc(shortSetNum(m.from.setNum))} · ${hasValue(m.from) ? money(m.from.value) + ' · ' : ''}${fst.missing ? fst.missing + ' missing' : 'complete'}</span></div>
+            </div>
+          </div>
+          <button class="btn ok small" data-move="${i}">Move</button>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
 function renderSet(setNum) {
   const set = state.sets[setNum];
   if (!set) { go('#sets'); return; }
@@ -534,8 +681,10 @@ function renderSet(setNum) {
           ${st.missing ? `<span class="badge miss">${st.missing} ${st.missing === 1 ? 'piece' : 'pieces'} missing</span>` : `<span class="badge ok">Complete ✓</span>`}
           <span class="muted small">${st.have} / ${st.need}</span>
         </div>
+        <button class="btn small value-btn" id="valueBtn">${hasValue(set) ? `💷 ${money(set.value)} · edit` : '💷 Add value'}</button>
       </div>
     </div>
+    ${renderSwapBox(set)}
     <div class="seg" id="filter">
       <button data-f="missing" class="${f === 'missing' ? 'active' : ''}">Missing (${st.kindsMissing})</button>
       <button data-f="have" class="${f === 'have' ? 'active' : ''}">Have (${st.kinds - st.kindsMissing})</button>
@@ -613,6 +762,16 @@ function renderSet(setNum) {
     if (route().arg === setNum) { renderSet(setNum); window.scrollTo(0, 0); }
     toast('All pieces unticked — starting again');
   };
+  $('#valueBtn').onclick = () => editValue(set);
+  const swaps = swapsFor(set);
+  document.querySelectorAll('[data-move]').forEach((b) => {
+    b.onclick = () => {
+      moveBetweenSets(set, swaps[Number(b.dataset.move)]);
+      const y = window.scrollY;
+      renderSet(setNum);
+      window.scrollTo(0, y);
+    };
+  });
   const delBtn = $('#delBtn');
   delBtn.classList.remove('hidden');
   $('#del').onclick = delBtn.onclick = async () => { if (await deleteSet(setNum)) go('#sets'); };
@@ -623,6 +782,7 @@ function renderSet(setNum) {
       const old = new Map(set.parts.map((p) => [p.key, p.have]));
       fresh.parts.forEach((p) => { p.have = Math.min(p.qty, old.get(p.key) || 0); });
       fresh.addedAt = set.addedAt;
+      if (hasValue(set)) fresh.value = set.value;
       state.sets[setNum] = fresh; save(); renderSet(setNum);
       toast('Parts list updated (your ticks were kept)');
     } catch (e) { toast(e.message); }
@@ -936,6 +1096,12 @@ function renderSettings() {
       </div>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div>
+    ${TIP_URL ? `
+    <div class="card">
+      <h2>☕ Support Brick Finder</h2>
+      <p class="muted small">Brick Finder is free. If it's helped you finish a set, you can say thanks with a small tip.</p>
+      <a class="btn primary block" href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a>
+    </div>` : ''}
     <div class="card small muted">
       <h2 style="color:var(--text)">About</h2>
       <p>Parts lists and pictures: <a href="https://rebrickable.com" target="_blank" rel="noopener">Rebrickable</a>. Piece recognition: <a href="https://brickognize.com" target="_blank" rel="noopener">Brickognize</a>. LEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this app.</p>
