@@ -582,18 +582,18 @@ function renderAdd() {
   $('#view').innerHTML = `
     <div class="card">
       <label class="lbl" for="setNum">Set number</label>
-      <input class="field" id="setNum" inputmode="text" placeholder="e.g. 6080" autocomplete="off" autocapitalize="off">
-      <p class="muted small">It's on the front of the manual and the box. If there are several versions you can add <b>-2</b>, <b>-3</b>… (default is -1).</p>
+      <input class="field" id="setNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 6080" autocomplete="off" autocapitalize="off">
+      <p class="muted small">It's on the front of the manual and the box.</p>
       <label class="lbl">How complete is it?</label>
       <div class="seg" id="startMode">
-        <button data-v="most" class="active">Mostly complete</button>
-        <button data-v="none">Start from zero</button>
+        <button data-v="most">Mostly complete</button>
+        <button data-v="none" class="active">Start from zero</button>
       </div>
       <p class="muted small" id="modeHelp"></p>
       <button class="btn primary block" id="fetchBtn">Get parts list</button>
       <div id="addStatus"></div>
     </div>`;
-  let mode = 'most';
+  let mode = 'none';
   const help = {
     most: 'Every piece starts ticked as <b>have</b>. Then just untick the few that are missing — much quicker!',
     none: 'Every piece starts as <b>missing</b>. Tick them off as you find them.',
