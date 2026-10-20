@@ -400,7 +400,6 @@ body.welcome .topbar {
 .prow-pic { position: relative; width: 72px; height: 72px; flex: none; background: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 2px solid transparent; }
 .prow.missing .prow-pic { border-color: var(--miss); }
 .prow-pic img { width: 88%; height: 88%; object-fit: contain; }
-.prow-pic .tick { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; font-size: 13px; }
 .counter.vertical { flex-direction: column; padding: 0; gap: 2px; flex: none; }
 .counter.vertical button { width: 40px; height: 34px; font-size: 20px; }
 .counter.vertical .count { font-size: 14px; }
@@ -408,12 +407,22 @@ body.welcome .topbar {
 .crow-pic { width: 44px; height: 44px; flex: none; background: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
 .crow-pic img { width: 88%; height: 88%; object-fit: contain; }
 .crow-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.crow.done .crow-name { color: var(--muted); }
 .check-btn {
   flex: none; min-width: 44px; height: 44px; padding: 0 8px; border-radius: 12px;
   border: 2px solid var(--line); background: var(--card); font-weight: 700; font-size: 15px; color: var(--text);
 }
-.check-btn.part { border-color: var(--miss); color: var(--miss); }
 .check-btn.on { background: var(--ok); border-color: var(--ok); color: #fff; }
 .check-btn.single { width: 44px; font-size: 20px; }
 .prow > .grow, .crow > .grow { flex: 1; min-width: 0; }
+
+/* List & checklist: each row is a card like the grid tiles — red outline while
+   still needed, gently faded once found. */
+.part-list { padding: 0; display: grid; gap: 8px; }
+.prow, .crow {
+  background: var(--card); border-radius: 14px; box-shadow: var(--shadow);
+  border: 2px solid transparent; padding: 10px 12px;
+}
+.prow:last-child, .crow:last-child { border-bottom: 2px solid transparent; }
+.prow.missing, .crow.missing { border-color: var(--miss); }
+.prow.done, .crow.done { opacity: .7; }
+.prow.missing .prow-pic { border-color: transparent; }

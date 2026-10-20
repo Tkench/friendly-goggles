@@ -1173,11 +1173,11 @@ function groupParts(parts) {
 
 function renderPartItems(items) {
   if (ui.partView === 'list') {
-    return `<div class="card part-list">${items.map((p) => {
+    return `<div class="part-list">${items.map((p) => {
       const missing = p.qty - p.have;
       return `
       <div class="pitem prow ${missing ? 'missing' : 'done'}" data-key="${esc(p.key)}">
-        <div class="prow-pic" data-act="toggle">${partImg(p)}${missing ? '' : '<span class="tick">✓</span>'}</div>
+        <div class="prow-pic" data-act="toggle">${partImg(p)}</div>
         <div class="grow">
           <div class="pname">${esc(p.name)}</div>
           <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
@@ -1192,16 +1192,16 @@ function renderPartItems(items) {
     }).join('')}</div>`;
   }
   if (ui.partView === 'check') {
-    return `<div class="card part-list">${items.map((p) => {
+    return `<div class="part-list">${items.map((p) => {
       const done = p.have >= p.qty;
       return `
-      <div class="pitem crow ${done ? 'done' : ''}" data-key="${esc(p.key)}">
+      <div class="pitem crow ${done ? 'done' : 'missing'}" data-key="${esc(p.key)}">
         <div class="crow-pic">${partImg(p)}</div>
         <div class="grow">
           <div class="crow-name">${esc(p.name)}</div>
           <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
         </div>
-        <button class="check-btn ${done ? 'on' : p.have ? 'part' : ''} ${p.qty === 1 ? 'single' : ''}" data-act="tick" aria-label="${done ? 'Untick' : 'Tick one'}">
+        <button class="check-btn ${done ? 'on' : p.have ? 'partial' : ''} ${p.qty === 1 ? 'single' : ''}" data-act="tick" aria-label="${done ? 'Untick' : 'Tick one'}">
           ${p.qty === 1 ? (done ? '✓' : '') : `${p.have}/${p.qty}`}
         </button>
       </div>`;
