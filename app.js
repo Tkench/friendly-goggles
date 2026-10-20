@@ -672,14 +672,39 @@ function render() {
 
 function setTitle(t) { $('#title').textContent = t; }
 
+// "The last brick": a small wall of bricks where the final one drops into
+// the gap. Drawn from scratch (no LEGO artwork) and animated with CSS.
+function heroSvg() {
+  const brick = (x, y, w, color, cls = '') => `
+    <g class="hb ${cls}" transform="translate(${x} ${y})">
+      ${Array.from({ length: w / 28 }, (_, i) => `<rect x="${7 + i * 28}" y="-6" width="14" height="7" rx="2" fill="${color}"/><rect x="${7 + i * 28}" y="-6" width="14" height="2.5" rx="1.2" fill="#fff" opacity=".25"/>`).join('')}
+      <rect width="${w - 2}" height="24" rx="3" fill="${color}"/>
+      <rect y="18" width="${w - 2}" height="6" rx="3" fill="#000" opacity=".14"/>
+      <rect x="3" y="3" width="${w - 8}" height="3" rx="1.5" fill="#fff" opacity=".22"/>
+    </g>`;
+  const R = '#d01012', Y = '#f2c400', B = '#1e5aa8', G = '#2f8f46', W = '#e9e9ee';
+  return `
+  <svg class="hero-art" viewBox="0 48 260 122" role="img" aria-label="A wall of bricks with the last brick dropping into place">
+    <ellipse cx="130" cy="158" rx="112" ry="7" fill="#000" opacity=".08"/>
+    ${brick(18, 126, 56, B)}${brick(74, 126, 56, Y)}${brick(130, 126, 56, R)}${brick(186, 126, 56, G)}
+    ${brick(46, 96, 56, R)}${brick(102, 96, 56, W)}${brick(158, 96, 56, B)}
+    ${brick(74, 66, 56, G)}
+    <rect class="hb-gap" x="130.5" y="66.5" width="53" height="23" rx="3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/>
+    ${brick(130, 66, 56, Y, 'hb-last')}
+    <g class="hb-spark" stroke="${Y}" stroke-width="3" stroke-linecap="round">
+      <line x1="122" y1="52" x2="114" y2="44"/><line x1="157" y1="46" x2="157" y2="34"/><line x1="192" y1="52" x2="200" y2="44"/>
+    </g>
+  </svg>`;
+}
+
 function renderWelcome() {
   setTitle('Last Brick');
   $('#view').innerHTML = `
-    <div class="card">
-      <h2>👋 Welcome!</h2>
-      <p>Add your LEGO sets by number and this app downloads the parts list (the same one printed at the back of the manual) with a picture of every piece.</p>
-      <p>Tick off what you have. The <b>Looking for</b> tab shows every missing piece across all your sets, and <b>Scan</b> tells you which set a piece you just found belongs to.</p>
-    </div>
+    <section class="hero">
+      ${heroSvg()}
+      <h2 class="hero-title">Find the missing pieces.<br>Finish every set.</h2>
+      <p class="hero-sub">Rebuild old LEGO® sets from a pile of bricks: see exactly what's missing, with a picture of every piece.</p>
+    </section>
     ${needsOwnKey() ? `<div class="card">
       <h2>One-time setup: free Rebrickable key</h2>
       <ol class="small">
@@ -691,15 +716,18 @@ function renderWelcome() {
       <p></p>
       <button class="btn primary block" id="saveKey">Save and start</button>
     </div>` : `
-    <button class="btn primary block" id="startBtn">Get started</button>
-    <p></p>`}
-    ${syncEnabled() ? `
-    <div class="card">
-      <h2>Already use Last Brick?</h2>
-      <p class="muted small">Log in to bring your sets onto this device.</p>
-      <a class="btn block" href="#settings">☁️ Log in</a>
-    </div>` : ''}
-    <p class="center small muted"><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Use</a></p>`;
+    <button class="btn primary block hero-cta" id="startBtn">Get started</button>`}
+    ${syncEnabled() ? `<p class="center small hero-login">Already use Last Brick? <a href="#settings">Log in</a></p>` : ''}
+    <h3 class="steps-title">How it works</h3>
+    <ol class="steps">
+      <li><span class="step-n">1</span><div><b>Add your sets</b><span>Type the number from the box or manual and the full parts list appears.</span></div></li>
+      <li><span class="step-n">2</span><div><b>Tick what you have</b><span>See exactly which pieces are still missing, in every colour.</span></div></li>
+      <li><span class="step-n">3</span><div><b>Find and scan</b><span>Spot a piece in the pile? Scan it to see which set needs it.</span></div></li>
+    </ol>
+    <footer class="welcome-foot small muted">
+      <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Use</a>
+      <p>LEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this app.</p>
+    </footer>`;
   if ($('#startBtn')) {
     $('#startBtn').onclick = () => { state.welcomed = true; save(); go('#add'); render(); };
     return;

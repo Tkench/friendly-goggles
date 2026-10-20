@@ -274,3 +274,32 @@ body.doc { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 /* Collapsible settings section */
 details.advanced summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 details.advanced[open] summary { margin-bottom: 8px; }
+
+/* Welcome page */
+.hero { text-align: center; padding: 8px 4px 4px; }
+.hero-art { width: min(300px, 82%); height: auto; display: block; margin: 4px auto 6px; color: var(--muted); overflow: visible; }
+.hero-title { font-size: 26px; line-height: 1.2; margin: 6px 0 8px; letter-spacing: -0.01em; }
+.hero-sub { color: var(--muted); max-width: 30em; margin: 0 auto 18px; }
+.hero-cta { font-size: 18px; min-height: 54px; box-shadow: 0 4px 14px rgba(208, 16, 18, .25); }
+.hero-login { margin: 14px 0 6px; }
+.hero-login a { font-weight: 600; }
+.steps-title { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 2px 10px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.steps li { display: flex; gap: 14px; align-items: flex-start; background: var(--card); border-radius: 14px; box-shadow: var(--shadow); padding: 14px; }
+.steps b { display: block; margin-bottom: 2px; }
+.steps span:not(.step-n) { color: var(--muted); font-size: 14px; }
+.step-n { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.welcome-foot { text-align: center; margin-top: 22px; }
+.welcome-foot p { font-size: 12px; margin-top: 6px; }
+
+/* Hero animation: the last brick drops into the gap, then a little sparkle */
+.hb-last { animation: hb-drop .9s cubic-bezier(.34, 1.45, .55, 1) .5s both; }
+.hb-gap { animation: hb-fade .2s linear 1.25s both; }
+.hb-spark { opacity: 0; animation: hb-spark .7s ease-out 1.3s both; }
+@keyframes hb-drop { from { transform: translate(130px, -60px); opacity: 0; } 30% { opacity: 1; } to { transform: translate(130px, 66px); opacity: 1; } }
+@keyframes hb-fade { to { opacity: 0; } }
+@keyframes hb-spark { 0% { opacity: 0; transform: translateY(6px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) {
+  .hb-last, .hb-gap, .hb-spark { animation: none; }
+  .hb-gap, .hb-spark { opacity: 0; }
+}
