@@ -662,7 +662,8 @@ function renderWelcome() {
       <h2>Already use Last Brick?</h2>
       <p class="muted small">Log in to bring your sets (and your key) onto this device.</p>
       <a class="btn block" href="#settings">☁️ Log in</a>
-    </div>` : ''}`;
+    </div>` : ''}
+    <p class="center small muted"><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Use</a></p>`;
   $('#saveKey').onclick = () => {
     const k = $('#keyInput').value.trim();
     if (!k) return toast('Paste your key first');
@@ -1390,6 +1391,7 @@ function renderSettings() {
     <div class="card small muted">
       <h2 style="color:var(--text)">About</h2>
       <p>Parts lists and pictures: <a href="https://rebrickable.com" target="_blank" rel="noopener">Rebrickable</a>. Piece recognition: <a href="https://brickognize.com" target="_blank" rel="noopener">Brickognize</a>. LEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this app.</p>
+      <p><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Use</a> · <a href="mailto:hello@lastbrick.co.uk">hello@lastbrick.co.uk</a></p>
     </div>`;
   $('#saveKey').onclick = () => {
     state.apiKey = $('#keyInput').value.trim(); save();
@@ -1465,6 +1467,10 @@ function renderAccountCard() {
       <button class="btn primary grow" id="loginBtn">Log in</button>
       <button class="btn grow" id="registerBtn">Create account</button>
     </div>
+    <label class="agree small">
+      <input type="checkbox" id="agree">
+      <span>New account? Please confirm: I'm 13 or over and agree to the <a href="terms.html">Terms of Use</a> and <a href="privacy.html">Privacy Policy</a>.</span>
+    </label>
     <p class="small" style="margin-top:12px"><a href="#" id="forgotPw">Forgot password?</a></p>
     <p class="muted small">Your email and sets are stored securely and only you can see them.</p>`;
   const creds = () => {
@@ -1487,6 +1493,11 @@ function renderAccountCard() {
   $('#registerBtn').onclick = async () => {
     const c = creds();
     if (!c) return;
+    if (!$('#agree').checked) {
+      toast("Please tick the box to confirm you're 13 or over and agree to the terms");
+      $('.agree').classList.add('need');
+      return;
+    }
     busy(true);
     try {
       if (await register(c.email, c.password)) {

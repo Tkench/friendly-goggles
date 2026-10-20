@@ -1,8 +1,8 @@
 // Offline support: the app itself is network-first (so updates show up),
 // part pictures are cached so the lists still look right without signal.
-const SHELL = 'brickfinder-shell-v11';
+const SHELL = 'brickfinder-shell-v12';
 const IMAGES = 'brickfinder-images-v1';
-const SHELL_FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
+const SHELL_FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'privacy.html', 'terms.html'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
