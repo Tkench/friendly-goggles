@@ -459,3 +459,47 @@ body.welcome .topbar {
 .match-set { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
 .scan-again { margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { .scan-line, .shot-line { animation: none; } }
+
+/* Looking for */
+.lf-head { text-align: center; padding: 10px 4px 6px; }
+.lf-title { font-size: 26px; line-height: 1.2; margin: 4px 0 14px; letter-spacing: -0.01em; }
+.lf-title .accent { color: var(--brand); }
+.filter-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text); font-weight: 600; font-size: 15px; }
+.filter-btn svg { width: 18px; height: 18px; }
+.filter-btn.on { border-color: var(--brand); color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 10px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--brand); color: var(--brand); background: var(--miss-bg); border-radius: 999px; padding: 5px 11px; font-size: 14px; font-weight: 600; }
+.lf-row { align-items: flex-start; }
+.lf-row .prow-pic { cursor: pointer; }
+.lf-set { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; font-size: 14px; }
+.lf-set .sname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crow[data-sheet], .part[data-sheet] { cursor: pointer; }
+
+/* Filter panel */
+.filter-sheet h2 { margin: 0; }
+.link-btn { border: 0; background: none; color: var(--brand); font-weight: 600; padding: 6px 0; }
+.filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px; }
+.fchip { display: flex; align-items: center; gap: 8px; text-align: left; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 12px; padding: 10px 10px; font-size: 14px; min-height: 44px; }
+.fchip span:not(.swatch) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-toolbar .sort-select > span { display: none; }
+.lf-toolbar .filter-btn { padding: 0 10px; }
+.fchip em { font-style: normal; color: var(--muted); font-size: 13px; }
+.fchip.on { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); background: var(--miss-bg); }
+.filter-sheet .btn.primary { margin-top: 14px; }
+
+/* Empty screens */
+.empty-brick { width: 110px; height: auto; display: block; margin: 0 auto 10px; }
+.empty b { color: var(--text); font-size: 17px; }
+
+/* Bottom menu icons drawn in the same style as the Sets brick */
+.tab-svg { width: 28px; height: 26px; display: block; }
+.fcount { background: var(--brand); color: #fff; border-radius: 999px; min-width: 20px; height: 20px; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }
+.lf-toolbar { gap: 8px; }
+.lf-toolbar .view-toggle button { width: 36px; }
+.lf-toolbar .sort-select select { font-size: 14px; }
+@media (max-width: 400px) {
+  .lf-toolbar { flex-wrap: wrap; }
+  .lf-toolbar .sort-select { flex: 1 1 100%; }
+  .lf-toolbar .sort-select > span { display: inline; }
+  .lf-toolbar .filter-btn { flex: 1; justify-content: center; }
+}

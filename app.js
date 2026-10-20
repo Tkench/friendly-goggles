@@ -23,7 +23,7 @@ const SUPABASE_KEY = 'sb_publishable_vWTdvZvwYgGsKhE0m7DbPg_MP_UbMqr';
 /* ---------- State ---------- */
 
 let state = load();
-let ui = { setFilter: 'missing', missingColor: '', missingSearch: '', setSearch: '', missingView: loadPref('missingView', 'list'), missingType: '', setSort: loadPref('setSort', 'closest'), setView: loadPref('setView', 'grid'), setsShow: loadPref('setsShow', 'all'), partView: loadPref('partView', 'grid'), partSort: loadPref('partSort', 'colour'), partColor: '', partType: '', partSetNum: '' };
+let ui = { setFilter: 'missing', missingColor: '', setSearch: '', missingView: loadPref('missingView2', 'list'), missingSort: loadPref('missingSort', 'colour'), missingType: '', setSort: loadPref('setSort', 'closest'), setView: loadPref('setView', 'grid'), setsShow: loadPref('setsShow', 'all'), partView: loadPref('partView', 'grid'), partSort: loadPref('partSort', 'colour'), partColor: '', partType: '', partSetNum: '' };
 let lastUndo = null;
 let scanState = null; // { photoUrl, loading, error, items }
 
@@ -958,7 +958,7 @@ function renderSets() {
   const index = swapIndex();
   let html = `<button class="btn primary block" id="addBtn">＋ Add a set</button><p></p>`;
   if (!all.length) {
-    html += `<div class="empty"><div class="big">🧱</div>No sets yet.<br>Tap <b>Add a set</b> and enter the set number from the manual cover.</div>`;
+    html += `<div class="empty">${emptyBrick()}<b>No sets yet</b><br>Tap <b>Add a set</b> and enter the set number from the manual cover.</div>`;
   } else {
     const info = new Map(all.map((s) => {
       const st = setStats(s);
@@ -1429,120 +1429,197 @@ function missingGroups() {
   return [...groups.values()];
 }
 
+// Small red "last brick" used on empty screens.
+function emptyBrick() {
+  const [f, e] = BRICK_COLOURS.r;
+  return `<svg class="empty-brick" viewBox="0 0 100 70" aria-hidden="true">
+    <ellipse cx="50" cy="62" rx="30" ry="3.5" fill="#000" opacity=".08"/>
+    ${[0, 1, 2].map((i) => `<rect x="${24.5 + i * 20}" y="13" width="11" height="8" rx="2.5" fill="${f}" stroke="${e}" stroke-width="2"/>`).join('')}
+    <rect x="20" y="20" width="60" height="34" rx="4" fill="${f}" stroke="${e}" stroke-width="2.4"/>
+    <rect x="24" y="24" width="52" height="3.5" rx="1.75" fill="#fff" opacity=".28"/>
+    <rect x="22" y="46" width="56" height="6" rx="3" fill="#000" opacity=".13"/>
+  </svg>`;
+}
+
+const MISSING_SORTS = [['colour', 'Colour'], ['type', 'Type'], ['needed', 'Most needed'], ['set', 'By set']];
+const MISSING_VIEWS = [['grid', '▦', 'Grid'], ['list', '☰', 'List'], ['compact', '≡', 'Compact']];
+
+// Groups for Looking for. Each entry: { title, rgb, items: [{ g, sets }] } where
+// `sets` are the sets to show for that item (all of them, or one when grouped by set).
+function groupMissing(shown) {
+  const byColourName = (a, b) => a.g.part.colorName.localeCompare(b.g.part.colorName) || a.g.part.name.localeCompare(b.g.part.name);
+  const wrap = (g) => ({ g, sets: g.sets });
+  if (ui.missingSort === 'set') {
+    const groups = new Map();
+    for (const g of shown) {
+      for (const s of g.sets) {
+        if (!groups.has(s.set.setNum)) groups.set(s.set.setNum, { title: s.set.name, sub: '#' + shortSetNum(s.set.setNum), items: [] });
+        groups.get(s.set.setNum).items.push({ g, sets: [s] });
+      }
+    }
+    return [...groups.values()].sort((a, b) => a.title.localeCompare(b.title)).map((x) => ({ ...x, items: x.items.sort(byColourName) }));
+  }
+  if (ui.missingSort === 'colour' || ui.missingSort === 'type') {
+    const groups = new Map();
+    for (const g of shown) {
+      const k = ui.missingSort === 'colour' ? g.part.colorName : g.type;
+      if (!groups.has(k)) groups.set(k, { title: k, rgb: ui.missingSort === 'colour' ? g.part.rgb : '', items: [] });
+      groups.get(k).items.push(wrap(g));
+    }
+    const order = ui.missingSort === 'type'
+      ? (a, b) => PIECE_TYPES.indexOf(a.title) - PIECE_TYPES.indexOf(b.title)
+      : (a, b) => a.title.localeCompare(b.title);
+    return [...groups.values()].sort(order).map((x) => ({ ...x, items: x.items.sort(byColourName) }));
+  }
+  return [{ title: '', items: shown.map(wrap).sort((a, b) => b.g.total - a.g.total || byColourName(a, b)) }];
+}
+
 function renderMissing() {
   setTitle('Looking for');
   const all = missingGroups();
   if (!Object.keys(state.sets).length) {
-    $('#view').innerHTML = `<div class="empty"><div class="big">🔎</div>Add a set first, then all its missing pieces show up here.</div>`;
+    $('#view').innerHTML = `<div class="empty">${emptyBrick()}<b>Nothing to look for yet</b><br>Add a set first, and all its missing pieces show up here.</div>`;
     return;
   }
   if (!all.length) {
-    $('#view').innerHTML = `<div class="empty"><div class="big">🎉</div>You're not missing anything. All your sets are complete!</div>`;
+    $('#view').innerHTML = `<div class="empty">${emptyBrick()}<b>All done!</b><br>You're not missing anything. Every set is complete. 🎉</div>`;
     return;
   }
 
   for (const g of all) g.type = pieceType(g.part);
-
-  // Colour chips (most common first). Each row's counts respect the other filter.
-  const colors = new Map();
-  for (const g of all) {
-    const c = colors.get(g.part.colorName) || { name: g.part.colorName, rgb: g.part.rgb, n: 0 };
-    if (!ui.missingType || g.type === ui.missingType) c.n += g.total;
-    colors.set(c.name, c);
-  }
-  const colorList = [...colors.values()].filter((c) => c.n || c.name === ui.missingColor).sort((a, b) => b.n - a.n);
-  if (ui.missingColor && !colors.has(ui.missingColor)) ui.missingColor = '';
-
-  const types = new Map(PIECE_TYPES.map((t) => [t, 0]));
-  for (const g of all) {
-    if (!ui.missingColor || g.part.colorName === ui.missingColor) types.set(g.type, types.get(g.type) + g.total);
-  }
+  if (ui.missingColor && !all.some((g) => g.part.colorName === ui.missingColor)) ui.missingColor = '';
   if (ui.missingType && !all.some((g) => g.type === ui.missingType)) ui.missingType = '';
-  const typeList = PIECE_TYPES.filter((t) => types.get(t) || t === ui.missingType);
-
-  const q = ui.missingSearch.trim().toLowerCase();
   const shown = all.filter((g) =>
-    (!ui.missingColor || g.part.colorName === ui.missingColor) &&
-    (!ui.missingType || g.type === ui.missingType) &&
-    (!q || g.part.name.toLowerCase().includes(q) || g.part.partNum.toLowerCase().includes(q) ||
-      g.part.colorName.toLowerCase().includes(q)));
-  shown.sort((a, b) => a.part.colorName.localeCompare(b.part.colorName) || a.part.name.localeCompare(b.part.name));
+    (!ui.missingColor || g.part.colorName === ui.missingColor) && (!ui.missingType || g.type === ui.missingType));
 
   const totalPieces = all.reduce((n, g) => n + g.total, 0);
+  const setCount = new Set(all.flatMap((g) => g.sets.map((s) => s.set.setNum))).size;
+  const shownPieces = shown.reduce((n, g) => n + g.total, 0);
+  const filtering = ui.missingColor || ui.missingType;
+  const activeColour = filtering && ui.missingColor ? all.find((g) => g.part.colorName === ui.missingColor).part.rgb : '';
+
   let html = `
-    <p class="muted small">${totalPieces} pieces missing across ${new Set(all.flatMap((g) => g.sets.map((s) => s.set.setNum))).size} sets. Sorting a pile? Pick a colour and a type of piece below.</p>
-    ${searchBox('mSearch', ui.missingSearch, 'Search by name or part number…')}
-    <div class="chips">
-      <button class="chip ${!ui.missingColor ? 'active' : ''}" data-color="">All colours</button>
-      ${colorList.map((c) => `<button class="chip ${ui.missingColor === c.name ? 'active' : ''}" data-color="${esc(c.name)}">${swatch(c.rgb)}${esc(c.name)} (${c.n})</button>`).join('')}
+    <section class="lf-head">
+      <h2 class="lf-title">${totalPieces} ${totalPieces === 1 ? 'piece' : 'pieces'} to find<br><span class="accent">across ${setCount} ${setCount === 1 ? 'set' : 'sets'}</span></h2>
+    </section>
+    <div class="sets-toolbar lf-toolbar">
+      <label class="sort-select">
+        <span class="muted small">Sort</span>
+        <select id="missingSort" aria-label="Sort missing pieces">
+          ${MISSING_SORTS.map(([v, label]) => `<option value="${v}" ${ui.missingSort === v ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </label>
+      <button class="filter-btn ${filtering ? 'on' : ''}" id="filterBtn">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <span class="fword">Filter</span>${filtering ? `<span class="fcount">${(ui.missingColor ? 1 : 0) + (ui.missingType ? 1 : 0)}</span>` : ''}
+      </button>
+      <div class="view-toggle" role="group" aria-label="View">
+        ${MISSING_VIEWS.map(([v, icon, label]) => `<button data-mview="${v}" class="${ui.missingView === v ? 'active' : ''}" aria-label="${label} view" title="${label}">${icon}</button>`).join('')}
+      </div>
     </div>
-    <div class="chips">
-      <button class="chip ${!ui.missingType ? 'active' : ''}" data-type="">All types</button>
-      ${typeList.map((t) => `<button class="chip ${ui.missingType === t ? 'active' : ''}" data-type="${esc(t)}">${esc(t)} (${types.get(t)})</button>`).join('')}
-    </div>
-    <div class="seg" id="mView">
-      <button data-v="list" class="${ui.missingView === 'list' ? 'active' : ''}">☰ List with sets</button>
-      <button data-v="grid" class="${ui.missingView === 'grid' ? 'active' : ''}">▦ All pictures</button>
-    </div>
-    <div id="mList">`;
-  if (!shown.length) html += `<div class="empty">No missing pieces match.</div>`;
-  if (ui.missingView === 'grid' && shown.length) {
-    html += `<p class="muted small">Every piece you're looking for. Tap one to see which set needs it.</p><div class="grid compact">`;
-    for (const g of shown) {
-      const p = g.part;
-      html += `
-        <div class="part missing" data-key="${esc(g.key)}" data-sheet>
-          <div class="pic">${partImg(p)}<span class="need-tag">×${g.total}</span></div>
-          <div class="info"><div class="meta">${swatch(p.rgb)} ${esc(p.colorName)}</div></div>
-        </div>`;
-    }
-    html += `</div>`;
+    ${filtering ? `<div class="active-filters">
+      <span class="muted small">Showing ${shownPieces} of ${totalPieces}:</span>
+      ${ui.missingColor ? `<button class="pill" data-clear="colour">${swatch(activeColour)}${esc(ui.missingColor)} ✕</button>` : ''}
+      ${ui.missingType ? `<button class="pill" data-clear="type">${esc(ui.missingType)} ✕</button>` : ''}
+    </div>` : ''}`;
+
+  if (!shown.length) html += `<div class="empty">No missing pieces match these filters.</div>`;
+  for (const grp of groupMissing(shown)) {
+    if (grp.title) html += `<h3 class="part-group">${grp.rgb ? swatch(grp.rgb) : ''}${esc(grp.title)}${grp.sub ? ` <span class="muted">${esc(grp.sub)}</span>` : ''} <span class="muted">(${grp.items.length})</span></h3>`;
+    html += renderMissingItems(grp.items);
   }
-  for (const g of ui.missingView === 'grid' ? [] : shown) {
-    const p = g.part;
-    html += `
-      <div class="card need-item" data-key="${esc(g.key)}">
-        <div class="pic">${partImg(p)}</div>
-        <div class="body">
-          <div class="pname">${esc(p.name)}</div>
-          <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · #${esc(p.partNum)}</div>
-          <span class="badge miss">need ${g.total}</span>
-          ${g.sets.map((s) => `
-            <div class="for-set">
-              <span class="sname">${s.need}× for <b>${esc(s.set.name)}</b> <span class="muted">#${esc(shortSetNum(s.set.setNum))}</span></span>
+  $('#view').innerHTML = html;
+
+  const rerender = () => { const y = window.scrollY; renderMissing(); window.scrollTo(0, y); };
+  const sortSel = $('#missingSort');
+  sortSel.onchange = () => { ui.missingSort = sortSel.value; savePref('missingSort', sortSel.value); rerender(); };
+  document.querySelectorAll('[data-mview]').forEach((b) => {
+    b.onclick = () => { ui.missingView = b.dataset.mview; savePref('missingView2', b.dataset.mview); rerender(); };
+  });
+  $('#filterBtn').onclick = () => showMissingFilter(all);
+  document.querySelectorAll('[data-clear]').forEach((b) => {
+    b.onclick = () => { if (b.dataset.clear === 'colour') ui.missingColor = ''; else ui.missingType = ''; rerender(); };
+  });
+  document.querySelectorAll('[data-found]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      changeHave(b.dataset.found, b.closest('[data-key]').dataset.key, 1, { withUndo: true });
+      rerender();
+    };
+  });
+  document.querySelectorAll('[data-sheet]').forEach((el) => {
+    el.onclick = (e) => { if (!e.target.closest('[data-found]')) showPartSheet(el.dataset.key); };
+  });
+}
+
+function renderMissingItems(items) {
+  if (ui.missingView === 'grid') {
+    return `<div class="grid compact">${items.map(({ g }) => `
+        <div class="part missing" data-key="${esc(g.key)}" data-sheet>
+          <div class="pic">${partImg(g.part)}<span class="need-tag">×${g.total}</span></div>
+          <div class="info"><div class="meta">${swatch(g.part.rgb)} ${esc(g.part.colorName)}</div></div>
+        </div>`).join('')}</div>`;
+  }
+  if (ui.missingView === 'compact') {
+    return `<div class="part-list">${items.map(({ g, sets }) => `
+        <div class="crow missing" data-key="${esc(g.key)}" data-sheet>
+          <div class="crow-pic">${partImg(g.part)}</div>
+          <div class="grow">
+            <div class="crow-name">${esc(g.part.name)}</div>
+            <div class="meta">${swatch(g.part.rgb)} ${esc(g.part.colorName)} · ${esc(g.part.partNum)}</div>
+          </div>
+          <span class="badge miss">need ${sets.reduce((t, s) => t + s.need, 0)}</span>
+        </div>`).join('')}</div>`;
+  }
+  return `<div class="part-list">${items.map(({ g, sets }) => `
+      <div class="prow lf-row missing" data-key="${esc(g.key)}">
+        <div class="prow-pic" data-sheet data-key="${esc(g.key)}">${partImg(g.part)}</div>
+        <div class="grow">
+          <div class="pname">${esc(g.part.name)}</div>
+          <div class="meta">${swatch(g.part.rgb)} ${esc(g.part.colorName)} · ${esc(g.part.partNum)}</div>
+          ${sets.map((s) => `
+            <div class="lf-set">
+              <span class="sname"><b>${s.need}×</b> ${esc(s.set.name)} <span class="muted">#${esc(shortSetNum(s.set.setNum))}</span></span>
               <button class="btn ok small" data-found="${esc(s.set.setNum)}">Found</button>
             </div>`).join('')}
         </div>
-      </div>`;
-  }
-  html += `</div>`;
-  $('#view').innerHTML = html;
+      </div>`).join('')}</div>`;
+}
 
-  bindSearch('mSearch', (v) => { ui.missingSearch = v; }, renderMissing);
-  document.querySelectorAll('[data-color]').forEach((b) => {
-    b.onclick = () => { ui.missingColor = b.dataset.color; renderMissing(); };
-  });
-  document.querySelectorAll('[data-type]').forEach((b) => {
-    b.onclick = () => { ui.missingType = b.dataset.type; renderMissing(); };
-  });
-  document.querySelectorAll('[data-found]').forEach((b) => {
-    b.onclick = () => {
-      const key = b.closest('[data-key]').dataset.key;
-      changeHave(b.dataset.found, key, 1, { withUndo: true });
-      const y = window.scrollY;
-      renderMissing();
-      window.scrollTo(0, y);
-    };
-  });
-  document.querySelectorAll('#mView button').forEach((b) => {
-    b.onclick = () => { ui.missingView = b.dataset.v; savePref('missingView', b.dataset.v); renderMissing(); };
-  });
-  document.querySelectorAll('[data-sheet]').forEach((el) => {
-    el.onclick = () => showPartSheet(el.dataset.key);
-  });
-  document.querySelectorAll('.need-item .pic').forEach((el) => {
-    el.onclick = () => showPartSheet(el.closest('[data-key]').dataset.key);
-  });
+// Bottom panel with every colour and type laid out in a grid (no sideways scrolling).
+function showMissingFilter(all) {
+  let colour = ui.missingColor, type = ui.missingType;
+  const draw = () => {
+    const colours = new Map(), types = new Map();
+    for (const g of all) {
+      if (!type || g.type === type) {
+        const c = colours.get(g.part.colorName) || { name: g.part.colorName, rgb: g.part.rgb, n: 0 };
+        c.n += g.total; colours.set(c.name, c);
+      }
+      if (!colour || g.part.colorName === colour) types.set(g.type, (types.get(g.type) || 0) + g.total);
+    }
+    const count = all.filter((g) => (!colour || g.part.colorName === colour) && (!type || g.type === type)).reduce((n, g) => n + g.total, 0);
+    openSheet(`
+      <div class="filter-sheet">
+        <div class="row"><h2 class="grow">Filter</h2><button class="link-btn" id="fClear">Clear all</button></div>
+        <h3 class="steps-title">Colour</h3>
+        <div class="filter-grid">
+          ${[...colours.values()].sort((a, b) => b.n - a.n).map((c) => `
+            <button class="fchip ${colour === c.name ? 'on' : ''}" data-fc="${esc(c.name)}">${swatch(c.rgb)}<span>${esc(c.name)}</span><em>${c.n}</em></button>`).join('')}
+        </div>
+        <h3 class="steps-title">Type of piece</h3>
+        <div class="filter-grid">
+          ${PIECE_TYPES.filter((t) => types.get(t)).map((t) => `
+            <button class="fchip ${type === t ? 'on' : ''}" data-ft="${esc(t)}"><span>${esc(t)}</span><em>${types.get(t)}</em></button>`).join('')}
+        </div>
+        <button class="btn primary block" id="fApply">Show ${count} ${count === 1 ? 'piece' : 'pieces'}</button>
+      </div>`);
+    document.querySelectorAll('[data-fc]').forEach((b) => { b.onclick = () => { colour = colour === b.dataset.fc ? '' : b.dataset.fc; draw(); }; });
+    document.querySelectorAll('[data-ft]').forEach((b) => { b.onclick = () => { type = type === b.dataset.ft ? '' : b.dataset.ft; draw(); }; });
+    $('#fClear').onclick = () => { colour = ''; type = ''; draw(); };
+    $('#fApply').onclick = () => { ui.missingColor = colour; ui.missingType = type; closeSheet(); renderMissing(); window.scrollTo(0, 0); };
+  };
+  draw();
 }
 
 function showPartSheet(key) {
