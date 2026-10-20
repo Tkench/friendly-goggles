@@ -28,6 +28,17 @@ The parts lists come from [Rebrickable](https://rebrickable.com), a free LEGO da
 2. Go to **Settings → API** and tap **Generate new API key**.
 3. Paste the key into the app when it asks.
 
+## Login, backup and sync (optional)
+
+Accounts use [Supabase](https://supabase.com) (free plan). Until it's set up the app works exactly as before, with everything stored on the phone.
+
+1. Create a free account at supabase.com and a **New project** (pick the **London** region and save the database password somewhere safe).
+2. Open **SQL Editor → New query**, paste the contents of [`supabase/setup.sql`](supabase/setup.sql) and press **Run**.
+3. Open **Authentication → URL Configuration** and set **Site URL** to the app's address, e.g. `https://<your-username>.github.io/friendly-goggles/` (also add it under **Redirect URLs**). This is where the "confirm your email" and "reset password" links send people back to.
+4. Open **Project Settings → API** and copy the **Project URL** and the **anon / public** key into `SUPABASE_URL` and `SUPABASE_KEY` at the top of `app.js`. The anon key is designed to be public; row-level security means each person can only read and change their own data.
+
+Free Supabase projects pause after about a week with no activity; if that happens, press **Restore** on the project in the Supabase dashboard.
+
 ## Credits
 
 Parts lists and pictures: [Rebrickable](https://rebrickable.com). Piece recognition: [Brickognize](https://brickognize.com).

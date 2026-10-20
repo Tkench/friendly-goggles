@@ -2,7 +2,8 @@
  *
  * Parts lists come from the Rebrickable API (free key required).
  * Photo recognition of a single piece uses the Brickognize API.
- * Everything you tick off is stored on this device (localStorage).
+ * Everything you tick off is stored on this device (localStorage) and, when
+ * logged in, backed up to Supabase and synced between devices.
  */
 'use strict';
 
@@ -11,6 +12,11 @@ const RB_API = 'https://rebrickable.com/api/v3/lego';
 const BRICKOGNIZE_API = 'https://api.brickognize.com/predict/parts/';
 // Tip jar link (Ko-fi / Buy Me a Coffee). The Support button stays hidden while this is empty.
 const TIP_URL = '';
+// Supabase project for login, backup and sync (see supabase/setup.sql). The
+// "anon" key is meant to be public: row-level security keeps each person's
+// data private. Accounts stay hidden while these are empty.
+const SUPABASE_URL = '';
+const SUPABASE_KEY = '';
 
 /* ---------- State ---------- */
 
@@ -20,15 +26,16 @@ let lastUndo = null;
 let scanState = null; // { photoUrl, loading, error, items }
 
 function load() {
+  let s = { apiKey: '', sets: {} };
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) {
-      const s = JSON.parse(raw);
-      s.sets = s.sets || {};
-      return s;
-    }
+    if (raw) s = JSON.parse(raw);
   } catch (e) { console.warn('Could not load saved data', e); }
-  return { apiKey: '', sets: {} };
+  s.sets = s.sets || {};
+  s.deleted = s.deleted || {};
+  // Sets saved before sync existed have no change time yet.
+  for (const set of Object.values(s.sets)) if (!set.updatedAt) set.updatedAt = set.addedAt || 1;
+  return s;
 }
 
 function loadPref(name, fallback) {
@@ -38,12 +45,282 @@ function savePref(name, value) {
   try { localStorage.setItem('brickfinder.' + name, value); } catch { /* not important */ }
 }
 
-function save() {
+// What sync compares to tell whether a set changed since the last save.
+const setSig = (set) => JSON.stringify([set.name, set.value, set.parts.length, set.parts.map((p) => p.have)]);
+let lastSigs = new Map(Object.values(state.sets).map((set) => [set.setNum, setSig(set)]));
+
+// Saves on this device. Stamps changed sets (and deletions) with the time so
+// sync can tell which copy is newest, then schedules a backup.
+function save({ fromSync = false } = {}) {
+  const now = Date.now();
+  const sigs = new Map();
+  for (const set of Object.values(state.sets)) {
+    const sig = setSig(set);
+    sigs.set(set.setNum, sig);
+    if (!fromSync && (lastSigs.get(set.setNum) !== sig || !set.updatedAt)) set.updatedAt = now;
+  }
+  if (!fromSync) {
+    for (const num of lastSigs.keys()) if (!sigs.has(num)) state.deleted[num] = now;
+  }
+  lastSigs = sigs;
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
   } catch (e) {
     toast('Could not save on this device: ' + e.message);
   }
+  if (!fromSync) scheduleSync();
+}
+
+/* ---------- Account, backup & sync (Supabase) ----------
+ * One row per user in the user_data table holds { apiKey, sets, deleted }.
+ * Every sync pulls that row, merges it with this device (newest copy of each
+ * set wins; deletions win over older copies) and pushes the result back.
+ */
+
+const SESSION_KEY = 'brickfinder.session';
+const syncEnabled = () => !!(SUPABASE_URL && SUPABASE_KEY);
+let session = syncEnabled() ? loadSession() : null;
+let sync = { busy: false, again: false, timer: 0, error: '', lastAt: Number(loadPref('lastSync', '0')) };
+
+function loadSession() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY)) || null; } catch { return null; }
+}
+function setSession(s) {
+  session = s;
+  try {
+    if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch { /* private mode */ }
+}
+
+async function sbFetch(path, opts = {}) {
+  const { method = 'GET', body, auth = false, headers = {}, retried = false } = opts;
+  const h = { apikey: SUPABASE_KEY, ...headers };
+  if (body !== undefined) h['Content-Type'] = 'application/json';
+  if (auth) h.Authorization = 'Bearer ' + (await accessToken());
+  let res;
+  try {
+    res = await fetch(SUPABASE_URL + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch {
+    throw new Error("Can't connect — check your internet");
+  }
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  // Token rejected early (e.g. the phone's clock is off): renew it and retry once.
+  if (res.status === 401 && auth && !retried && session) {
+    session.expiresAt = 0;
+    return sbFetch(path, { ...opts, retried: true });
+  }
+  if (!res.ok) {
+    const msg = (data && (data.error_description || data.msg || data.message || data.error)) || 'Error ' + res.status;
+    const err = new Error(friendlyAuthError(String(msg)));
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+function friendlyAuthError(msg) {
+  if (/invalid login credentials/i.test(msg)) return 'Wrong email or password';
+  if (/email not confirmed/i.test(msg)) return 'Please confirm your email first — tap the link in the email we sent you';
+  if (/already registered|already exists/i.test(msg)) return 'There is already an account with this email — try logging in';
+  if (/password.*(at least|short)/i.test(msg)) return 'Password must be at least 6 characters';
+  if (/rate limit|too many/i.test(msg)) return 'Too many tries — please wait a few minutes';
+  return msg;
+}
+
+function sessionFrom(data) {
+  return {
+    access: data.access_token,
+    refresh: data.refresh_token,
+    expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
+    email: (data.user && data.user.email) || (session && session.email) || '',
+    userId: (data.user && data.user.id) || (session && session.userId) || '',
+  };
+}
+
+async function accessToken() {
+  if (!session) throw new Error('Not logged in');
+  if (Date.now() > session.expiresAt - 60000) {
+    try {
+      const data = await sbFetch('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: session.refresh } });
+      setSession(sessionFrom(data));
+    } catch (e) {
+      if (e.status === 400 || e.status === 401) {
+        setSession(null);
+        render();
+        throw new Error('Please log in again');
+      }
+      throw e;
+    }
+  }
+  return session.access;
+}
+
+const appUrl = () => location.origin + location.pathname;
+
+async function logIn(email, password) {
+  const data = await sbFetch('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password } });
+  setSession(sessionFrom(data));
+  await syncNow({ loud: true });
+}
+
+// Returns true when logged straight in, false when an email confirmation is needed.
+async function register(email, password) {
+  const data = await sbFetch('/auth/v1/signup?redirect_to=' + encodeURIComponent(appUrl()), { method: 'POST', body: { email, password } });
+  if (data && data.access_token) {
+    setSession(sessionFrom(data));
+    await syncNow({ loud: true });
+    return true;
+  }
+  return false;
+}
+
+function logOut() {
+  if (session) sbFetch('/auth/v1/logout', { method: 'POST', auth: true }).catch(() => {});
+  setSession(null);
+  sync.error = '';
+}
+
+function mergeData(local, remote) {
+  const deleted = { ...(remote.deleted || {}) };
+  for (const [num, t] of Object.entries(local.deleted || {})) deleted[num] = Math.max(t, deleted[num] || 0);
+  const sets = {};
+  const nums = new Set([...Object.keys(local.sets || {}), ...Object.keys((remote.sets) || {})]);
+  for (const num of nums) {
+    const a = (local.sets || {})[num], b = (remote.sets || {})[num];
+    const newest = !a ? b : !b ? a : ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a);
+    if ((newest.updatedAt || 0) > (deleted[num] || 0)) sets[num] = newest;
+  }
+  return { apiKey: local.apiKey || remote.apiKey || '', sets, deleted };
+}
+
+function scheduleSync(delay = 3000) {
+  if (!session) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(() => syncNow(), delay);
+}
+
+async function syncNow({ loud = false } = {}) {
+  if (!session) return;
+  if (sync.busy) { sync.again = true; return; }
+  sync.busy = true;
+  clearTimeout(sync.timer);
+  try {
+    // The row's version number stops two devices saving over each other: if
+    // it changed since we read it, read again, merge again and retry.
+    for (let attempt = 0; ; attempt++) {
+      if (attempt === 4) throw new Error('Another device keeps saving — try again in a moment');
+      if (await syncOnce(session.userId)) break;
+    }
+    sync.error = '';
+    sync.lastAt = Date.now();
+    savePref('lastSync', String(sync.lastAt));
+  } catch (e) {
+    sync.error = e.message;
+    if (loud) toast('Backup failed: ' + e.message);
+  } finally {
+    sync.busy = false;
+    if (route().name === 'settings') renderAccountCard();
+  }
+  if (sync.again) { sync.again = false; syncNow(); }
+}
+
+// One pull–merge–push round. Returns false if another device saved first.
+async function syncOnce(uid) {
+  const q = `user_id=eq.${encodeURIComponent(uid)}`;
+  const rows = await sbFetch(`/rest/v1/user_data?select=data,version&${q}`, { auth: true });
+  const row = rows && rows[0];
+  const local = { apiKey: state.apiKey, sets: state.sets, deleted: state.deleted };
+  const merged = row ? mergeData(local, row.data) : local;
+  if (JSON.stringify(merged) !== JSON.stringify(local)) {
+    state.apiKey = merged.apiKey;
+    state.sets = merged.sets;
+    state.deleted = merged.deleted;
+    save({ fromSync: true });
+    if (!document.querySelector('#sheet:not(.hidden)') && !document.activeElement?.matches('input')) render();
+  }
+  if (row && JSON.stringify(merged) === JSON.stringify(row.data)) return true;
+  const now = new Date().toISOString();
+  if (!row) {
+    try {
+      await sbFetch('/rest/v1/user_data', {
+        method: 'POST', auth: true, headers: { Prefer: 'return=minimal' },
+        body: { user_id: uid, data: merged, version: 1, updated_at: now },
+      });
+      return true;
+    } catch (e) {
+      if (e.status === 409) return false; // another device created it first
+      throw e;
+    }
+  }
+  const updated = await sbFetch(`/rest/v1/user_data?${q}&version=eq.${row.version}`, {
+    method: 'PATCH', auth: true, headers: { Prefer: 'return=representation' },
+    body: { data: merged, version: row.version + 1, updated_at: now },
+  });
+  return Array.isArray(updated) && updated.length > 0;
+}
+
+async function deleteAccount() {
+  await sbFetch('/rest/v1/rpc/delete_account', { method: 'POST', auth: true, body: {} });
+  setSession(null);
+}
+
+// After tapping the link in a confirmation or password-reset email, Supabase
+// sends people back here with the login in the address (#access_token=…).
+async function handleAuthRedirect() {
+  const h = location.hash.slice(1);
+  if (!syncEnabled() || !/(^|&)(access_token|error_description)=/.test(h)) return;
+  const p = new URLSearchParams(h);
+  history.replaceState(null, '', location.pathname + location.search + '#settings');
+  if (p.get('error_description')) {
+    toast(p.get('error_description').replace(/\+/g, ' ') + ' — please try again');
+    return;
+  }
+  setSession(sessionFrom({ access_token: p.get('access_token'), refresh_token: p.get('refresh_token'), expires_in: Number(p.get('expires_in')) || 3600 }));
+  try {
+    const user = await sbFetch('/auth/v1/user', { auth: true });
+    setSession({ ...session, email: user.email, userId: user.id });
+  } catch (e) {
+    setSession(null);
+    toast('Could not log in: ' + e.message);
+    return;
+  }
+  if (p.get('type') === 'recovery') {
+    render();
+    showNewPasswordSheet();
+  } else {
+    toast('Email confirmed — you are logged in');
+    await syncNow({ loud: true });
+    render();
+  }
+}
+
+function showNewPasswordSheet() {
+  openSheet(`
+    <h2>Choose a new password</h2>
+    <input class="field" id="newPw" type="password" autocomplete="new-password" placeholder="New password (at least 6 characters)">
+    <p></p>
+    <button class="btn primary block" id="newPwSave">Save password</button>`);
+  $('#newPwSave').onclick = async () => {
+    const password = $('#newPw').value;
+    if (password.length < 6) return toast('Password must be at least 6 characters');
+    try {
+      await sbFetch('/auth/v1/user', { method: 'PUT', auth: true, body: { password } });
+      closeSheet();
+      toast('Password changed — you are logged in');
+      syncNow();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+function timeAgo(t) {
+  const s = Math.round((Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' hours ago';
+  return new Date(t).toLocaleDateString();
 }
 
 /* ---------- Helpers ---------- */
@@ -378,7 +655,13 @@ function renderWelcome() {
       <input class="field" id="keyInput" placeholder="Paste API key here" autocomplete="off" autocapitalize="off" spellcheck="false">
       <p></p>
       <button class="btn primary block" id="saveKey">Save and start</button>
-    </div>`;
+    </div>
+    ${syncEnabled() ? `
+    <div class="card">
+      <h2>Already use Brick Finder?</h2>
+      <p class="muted small">Log in to bring your sets (and your key) onto this device.</p>
+      <a class="btn block" href="#settings">☁️ Log in</a>
+    </div>` : ''}`;
   $('#saveKey').onclick = () => {
     const k = $('#keyInput').value.trim();
     if (!k) return toast('Paste your key first');
@@ -1080,6 +1363,7 @@ function renderSettings() {
   setTitle('Settings');
   const sets = sortedSets();
   $('#view').innerHTML = `
+    ${syncEnabled() ? '<div class="card" id="accountCard"></div>' : ''}
     <div class="card">
       <h2>Rebrickable API key</h2>
       <p class="muted small">Free from <a href="https://rebrickable.com/users/profile/settings/#api" target="_blank" rel="noopener">rebrickable.com → Settings → API</a>.</p>
@@ -1088,8 +1372,8 @@ function renderSettings() {
       <button class="btn primary block" id="saveKey">Save key</button>
     </div>
     <div class="card">
-      <h2>Backup</h2>
-      <p class="muted small">Your ticks are saved on this phone only. Download a backup now and then, or use it to move to a new phone. (${sets.length} sets saved.)</p>
+      <h2>Backup file</h2>
+      <p class="muted small">${session ? 'Your sets are backed up online automatically. You can also keep a copy as a file.' : 'Your ticks are saved on this phone only. Download a backup now and then, or use it to move to a new phone.'} (${sets.length} sets saved.)</p>
       <div class="row">
         <button class="btn grow" id="exportBtn">⬇️ Download backup</button>
         <button class="btn grow" id="importBtn">⬆️ Restore backup</button>
@@ -1110,6 +1394,7 @@ function renderSettings() {
     state.apiKey = $('#keyInput').value.trim(); save();
     toast(state.apiKey ? 'Key saved' : 'Key removed');
   };
+  renderAccountCard();
   $('#exportBtn').onclick = () => {
     const blob = new Blob([JSON.stringify({ app: 'brickfinder', version: 1, exportedAt: new Date().toISOString(), sets: state.sets }, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -1134,6 +1419,100 @@ function renderSettings() {
   };
 }
 
+function renderAccountCard() {
+  const card = $('#accountCard');
+  if (!card) return;
+  if (session) {
+    card.innerHTML = `
+      <h2>☁️ Account &amp; backup</h2>
+      <p class="small">Logged in as <b>${esc(session.email)}</b></p>
+      <p class="small ${sync.error ? '' : 'muted'}" ${sync.error ? 'style="color:var(--miss)"' : ''}>
+        ${sync.busy ? 'Backing up…' : sync.error ? '⚠️ Last backup failed: ' + esc(sync.error) : sync.lastAt ? '✅ Backed up ' + timeAgo(sync.lastAt) : 'Not backed up yet'}
+      </p>
+      <p class="muted small">Changes are backed up automatically and appear on your other devices when you open the app there.</p>
+      <div class="row">
+        <button class="btn grow" id="syncBtn" ${sync.busy ? 'disabled' : ''}>🔄 Back up now</button>
+        <button class="btn grow" id="logoutBtn">Log out</button>
+      </div>
+      <p class="small" style="margin-top:12px"><a href="#" id="deleteAcct" style="color:var(--miss)">Delete my account</a></p>`;
+    $('#syncBtn').onclick = () => { syncNow({ loud: true }); renderAccountCard(); };
+    $('#logoutBtn').onclick = async () => {
+      if (!await askConfirm({ title: 'Log out?', text: 'Your sets stay on this phone. Log in again any time to carry on backing up.', ok: 'Log out' })) return;
+      logOut();
+      toast('Logged out');
+      renderSettings();
+    };
+    $('#deleteAcct').onclick = async (e) => {
+      e.preventDefault();
+      if (!await askConfirm({ title: 'Delete your account?', text: 'This deletes your login and your online backup for good. The sets on this phone are kept.', ok: 'Delete account', danger: true })) return;
+      try {
+        await deleteAccount();
+        toast('Account deleted');
+        renderSettings();
+      } catch (err) { toast('Could not delete account: ' + err.message); }
+    };
+    return;
+  }
+  card.innerHTML = `
+    <h2>☁️ Account &amp; backup</h2>
+    <p class="small">Log in to back up your sets online and use them on your other devices.</p>
+    <input class="field" id="email" type="email" autocomplete="email" autocapitalize="off" placeholder="Email address">
+    <p></p>
+    <input class="field" id="password" type="password" autocomplete="current-password" placeholder="Password">
+    <p></p>
+    <div class="row">
+      <button class="btn primary grow" id="loginBtn">Log in</button>
+      <button class="btn grow" id="registerBtn">Create account</button>
+    </div>
+    <p class="small" style="margin-top:12px"><a href="#" id="forgotPw">Forgot password?</a></p>
+    <p class="muted small">Your email and sets are stored securely and only you can see them.</p>`;
+  const creds = () => {
+    const email = $('#email').value.trim(), password = $('#password').value;
+    if (!/^\S+@\S+\.\S+$/.test(email)) { toast('Enter your email address'); return null; }
+    if (password.length < 6) { toast('Password must be at least 6 characters'); return null; }
+    return { email, password };
+  };
+  const busy = (on) => { $('#loginBtn').disabled = $('#registerBtn').disabled = on; };
+  $('#loginBtn').onclick = async () => {
+    const c = creds();
+    if (!c) return;
+    busy(true);
+    try {
+      await logIn(c.email, c.password);
+      toast('Logged in — your sets are backed up');
+      renderSettings();
+    } catch (e) { toast(e.message); busy(false); }
+  };
+  $('#registerBtn').onclick = async () => {
+    const c = creds();
+    if (!c) return;
+    busy(true);
+    try {
+      if (await register(c.email, c.password)) {
+        toast('Account created — your sets are backed up');
+        renderSettings();
+      } else {
+        busy(false);
+        openSheet(`
+          <h2>📧 Check your email</h2>
+          <p>We've sent a link to <b>${esc(c.email)}</b>. Tap it to confirm your account — it brings you back here, logged in.</p>
+          <p class="muted small">Can't see it? Check your spam folder.</p>
+          <button class="btn block" data-close>OK</button>`);
+      }
+    } catch (e) { toast(e.message); busy(false); }
+  };
+  $('#password').onkeydown = (e) => { if (e.key === 'Enter') $('#loginBtn').click(); };
+  $('#forgotPw').onclick = async (e) => {
+    e.preventDefault();
+    const email = $('#email').value.trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) return toast('Type your email address first');
+    try {
+      await sbFetch('/auth/v1/recover?redirect_to=' + encodeURIComponent(appUrl()), { method: 'POST', body: { email } });
+      toast('Check your email for a link to reset your password');
+    } catch (err) { toast(err.message); }
+  };
+}
+
 /* ---------- Boot ---------- */
 
 document.querySelectorAll('#tabs button').forEach((b) => {
@@ -1145,6 +1524,10 @@ document.querySelectorAll('#tabs button').forEach((b) => {
 $('#backBtn').onclick = () => (history.length > 1 ? history.back() : go('#sets'));
 
 render();
+handleAuthRedirect().then(() => syncNow());
+// Pick up changes from other devices when the app is reopened or back online.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
+window.addEventListener('online', () => syncNow());
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW registration failed', e));
