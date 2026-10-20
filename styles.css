@@ -276,32 +276,70 @@ details.advanced summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 details.advanced[open] summary { margin-bottom: 8px; }
 
 /* Welcome page */
-.hero { text-align: center; padding: 8px 4px 4px; }
-.hero-art { width: min(300px, 82%); height: auto; display: block; margin: 4px auto 6px; color: var(--muted); overflow: visible; }
+.hero { text-align: center; padding: 34px 4px 4px; }
+.hero-art { width: min(280px, 76%); height: auto; display: block; margin: 4px auto 6px; color: var(--muted); overflow: visible; }
 .hero-title { font-size: 26px; line-height: 1.2; margin: 6px 0 8px; letter-spacing: -0.01em; }
 .hero-sub { color: var(--muted); max-width: 30em; margin: 0 auto 18px; }
 .hero-cta { font-size: 18px; min-height: 54px; box-shadow: 0 4px 14px rgba(208, 16, 18, .25); }
 .hero-login { margin: 14px 0 6px; }
 .hero-login a { font-weight: 600; }
 .steps-title { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 2px 10px; }
-.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.steps li { display: flex; gap: 14px; align-items: flex-start; background: var(--card); border-radius: 14px; box-shadow: var(--shadow); padding: 14px; }
-.steps b { display: block; margin-bottom: 2px; }
-.steps span:not(.step-n) { color: var(--muted); font-size: 14px; }
-.step-n { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+/* How it works: swipeable cards on phones, side by side on wider screens */
+.steps {
+  list-style: none; margin: 0 -16px; padding: 4px 16px 10px; display: flex; gap: 12px;
+  overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 16px; scrollbar-width: none;
+}
+.steps::-webkit-scrollbar { display: none; }
+.steps li {
+  flex: 0 0 82%; scroll-snap-align: start; position: relative;
+  background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 18px 18px 20px;
+}
+.step-n { display: block; font-size: 30px; font-weight: 800; color: var(--brand); opacity: .4; letter-spacing: -0.02em; margin-bottom: 4px; }
+.steps b { display: block; font-size: 20px; margin-bottom: 6px; }
+.step-text { color: var(--muted); font-size: 15px; display: block; padding-right: 8px; }
+.step-ico { position: absolute; top: 14px; right: 16px; font-size: 38px; }
+.step-dots { display: flex; justify-content: center; gap: 6px; margin-top: 4px; }
+.step-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--line); transition: width .2s, background .2s; }
+.step-dots span.on { width: 20px; border-radius: 4px; background: var(--brand); }
+@media (min-width: 700px) {
+  .steps { overflow: visible; margin: 0; padding: 4px 0 10px; }
+  .steps li { flex: 1 1 0; }
+  .step-dots { display: none; }
+}
+
+.hero-title .accent { color: var(--brand); }
+
+/* Welcome page header: white, with logo and two-colour name */
+/* The red strip stays behind the iPhone status bar (its text is white when installed). */
+body.welcome .topbar {
+  background: linear-gradient(to bottom, var(--brand) env(safe-area-inset-top), var(--card) env(safe-area-inset-top));
+  color: var(--text); border-bottom: 1px solid var(--line);
+}
+.topbar h1 { display: flex; align-items: center; gap: 8px; }
+.logo-mark { width: 40px; height: 22px; flex: none; }
+.wordmark { font-weight: 800; letter-spacing: -0.01em; }
+.wordmark .brick { color: var(--brand); }
+
 .welcome-foot { text-align: center; margin-top: 22px; }
 .welcome-foot p { font-size: 12px; margin-top: 6px; }
 
-/* Hero animation: the last brick drops into the gap, then a little sparkle */
-.hb-last { animation: hb-drop .9s cubic-bezier(.34, 1.45, .55, 1) .5s both; }
-.hb-gap { animation: hb-fade .2s linear 1.25s both; }
-.hb-spark { opacity: 0; animation: hb-spark .7s ease-out 1.3s both; }
-@keyframes hb-drop { from { transform: translate(130px, -60px); opacity: 0; } 30% { opacity: 1; } to { transform: translate(130px, 66px); opacity: 1; } }
-@keyframes hb-fade { to { opacity: 0; } }
-@keyframes hb-spark { 0% { opacity: 0; transform: translateY(6px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-4px); } }
+/* Hero animation: the red brick drops onto the stack, then impact marks flick out */
+.lb-drop { animation: lb-drop .85s cubic-bezier(.45, 0, .7, 1) .4s both; }
+.lb-speed { animation: lb-fade .25s linear 1.15s both; }
+.lb-impact { opacity: 0; animation: lb-impact .6s ease-out 1.2s both; }
+@keyframes lb-drop {
+  0% { transform: translateY(-190px); opacity: 0; }
+  20% { opacity: 1; }
+  82% { transform: translateY(0); }
+  90% { transform: translateY(-6px); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes lb-fade { to { opacity: 0; } }
+@keyframes lb-impact { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .hb-last, .hb-gap, .hb-spark { animation: none; }
-  .hb-gap, .hb-spark { opacity: 0; }
+  .lb-drop, .lb-speed, .lb-impact { animation: none; }
+  .lb-speed, .lb-impact { opacity: 0; }
 }
 
 /* Search box: ✕ to clear, Cancel while typing */

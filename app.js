@@ -670,39 +670,61 @@ function render() {
   }
 }
 
-function setTitle(t) { $('#title').textContent = t; }
+function setTitle(t) {
+  document.body.classList.remove('welcome');
+  $('#title').textContent = t;
+}
 
-// "The last brick": a small wall of bricks where the final one drops into
-// the gap. Drawn from scratch (no LEGO artwork) and animated with CSS.
-function heroSvg() {
-  const brick = (x, y, w, color, cls = '') => `
-    <g class="hb ${cls}" transform="translate(${x} ${y})">
-      ${Array.from({ length: w / 28 }, (_, i) => `<rect x="${7 + i * 28}" y="-6" width="14" height="7" rx="2" fill="${color}"/><rect x="${7 + i * 28}" y="-6" width="14" height="2.5" rx="1.2" fill="#fff" opacity=".25"/>`).join('')}
-      <rect width="${w - 2}" height="24" rx="3" fill="${color}"/>
-      <rect y="18" width="${w - 2}" height="6" rx="3" fill="#000" opacity=".14"/>
-      <rect x="3" y="3" width="${w - 8}" height="3" rx="1.5" fill="#fff" opacity=".22"/>
-    </g>`;
-  const R = '#d01012', Y = '#f2c400', B = '#1e5aa8', G = '#2f8f46', W = '#e9e9ee';
+// Welcome page header: logo + "Last" in black, "Brick" in red.
+function setWelcomeHeader() {
+  document.body.classList.add('welcome');
+  $('#title').innerHTML = setWelcomeHeaderArt();
+}
+
+// Last Brick logo art: a stepped stack of bricks with the red "last brick"
+// on top. Drawn from scratch (no LEGO artwork). With `animate`, the red brick
+// drops in and lands, with motion lines and impact marks (see .lb-* in CSS).
+const BRICK_COLOURS = {
+  r: ['#d9312b', '#a61f1b'], y: ['#f6c31b', '#c99a06'], b: ['#2f80d1', '#1d5ea3'], g: ['#3aa64a', '#277a34'],
+};
+
+function brandArt({ animate = false, cls = '' } = {}) {
+  const brick = (x, y, w, c) => {
+    const [fill, edge] = BRICK_COLOURS[c];
+    let studs = '';
+    for (let sx = x + 10; sx + 16 <= x + w - 6; sx += 34) {
+      studs += `<rect x="${sx}" y="${y - 8}" width="17" height="10" rx="2.5" fill="${fill}" stroke="${edge}" stroke-width="2.5"/>`;
+    }
+    return `${studs}<rect x="${x}" y="${y}" width="${w}" height="44" rx="3.5" fill="${fill}" stroke="${edge}" stroke-width="2.5"/>`;
+  };
   return `
-  <svg class="hero-art" viewBox="0 48 260 122" role="img" aria-label="A wall of bricks with the last brick dropping into place">
-    <ellipse cx="130" cy="158" rx="112" ry="7" fill="#000" opacity=".08"/>
-    ${brick(18, 126, 56, B)}${brick(74, 126, 56, Y)}${brick(130, 126, 56, R)}${brick(186, 126, 56, G)}
-    ${brick(46, 96, 56, R)}${brick(102, 96, 56, W)}${brick(158, 96, 56, B)}
-    ${brick(74, 66, 56, G)}
-    <rect class="hb-gap" x="130.5" y="66.5" width="53" height="23" rx="3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/>
-    ${brick(130, 66, 56, Y, 'hb-last')}
-    <g class="hb-spark" stroke="${Y}" stroke-width="3" stroke-linecap="round">
-      <line x1="122" y1="52" x2="114" y2="44"/><line x1="157" y1="46" x2="157" y2="34"/><line x1="192" y1="52" x2="200" y2="44"/>
+  <svg class="${cls}" viewBox="128 300 400 208" role="img" aria-label="A stack of bricks with the last red brick ${animate ? 'dropping into place' : 'on top'}">
+    <rect x="136" y="491" width="384" height="7" rx="3.5" fill="#000" opacity=".08"/>
+    ${brick(150, 446, 80, 'b')}${brick(230, 446, 105, 'g')}${brick(335, 446, 110, 'r')}${brick(445, 446, 62, 'g')}
+    ${brick(188, 402, 95, 'r')}${brick(283, 402, 107, 'g')}${brick(390, 402, 77, 'y')}
+    ${brick(228, 358, 110, 'y')}${brick(338, 358, 89, 'b')}
+    <g class="${animate ? 'lb-drop' : ''}">
+      ${animate ? `<g class="lb-speed" stroke="#e8a3a0" stroke-width="3" stroke-linecap="round">
+        <line x1="309" y1="220" x2="309" y2="262"/><line x1="337" y1="196" x2="337" y2="252"/><line x1="365" y1="220" x2="365" y2="262"/>
+      </g>` : ''}
+      ${brick(282, 314, 110, 'r')}
     </g>
+    ${animate ? `<g class="lb-impact" fill="none" stroke="#e8a3a0" stroke-width="3" stroke-linecap="round">
+      <path d="M270 330 q-12 6 -18 18"/><path d="M272 312 q-14 0 -24 8"/><path d="M404 330 q12 6 18 18"/><path d="M402 312 q14 0 24 8"/>
+    </g>` : ''}
   </svg>`;
 }
 
+function setWelcomeHeaderArt() {
+  return `${brandArt({ cls: 'logo-mark' })}<span class="wordmark"><span>Last</span> <span class="brick">Brick</span></span>`;
+}
+
 function renderWelcome() {
-  setTitle('Last Brick');
+  setWelcomeHeader();
   $('#view').innerHTML = `
     <section class="hero">
-      ${heroSvg()}
-      <h2 class="hero-title">Find the missing pieces.<br>Finish every set.</h2>
+      ${brandArt({ animate: true, cls: 'hero-art' })}
+      <h2 class="hero-title">Find the missing pieces.<br><span class="accent">Finish every set.</span></h2>
       <p class="hero-sub">Rebuild old LEGO® sets from a pile of bricks: see exactly what's missing, with a picture of every piece.</p>
     </section>
     ${needsOwnKey() ? `<div class="card">
@@ -716,18 +738,26 @@ function renderWelcome() {
       <p></p>
       <button class="btn primary block" id="saveKey">Save and start</button>
     </div>` : `
-    <button class="btn primary block hero-cta" id="startBtn">Get started</button>`}
-    ${syncEnabled() ? `<p class="center small hero-login">Already use Last Brick? <a href="#settings">Log in</a></p>` : ''}
+    <button class="btn primary block hero-cta" id="startBtn">Get started for free</button>`}
+    ${syncEnabled() ? `<p class="center small hero-login">Already have an account? <a href="#settings">Log in</a></p>` : ''}
     <h3 class="steps-title">How it works</h3>
-    <ol class="steps">
-      <li><span class="step-n">1</span><div><b>Add your sets</b><span>Type the number from the box or manual and the full parts list appears.</span></div></li>
-      <li><span class="step-n">2</span><div><b>Tick what you have</b><span>See exactly which pieces are still missing, in every colour.</span></div></li>
-      <li><span class="step-n">3</span><div><b>Find and scan</b><span>Spot a piece in the pile? Scan it to see which set needs it.</span></div></li>
+    <ol class="steps" id="steps">
+      <li><span class="step-ico" aria-hidden="true">📦</span><span class="step-n">01 /</span><b>Add your sets</b><span class="step-text">Type the number from the box or manual and the full parts list appears.</span></li>
+      <li><span class="step-ico" aria-hidden="true">✅</span><span class="step-n">02 /</span><b>Tick what you have</b><span class="step-text">See exactly which pieces are still missing, in every colour.</span></li>
+      <li><span class="step-ico" aria-hidden="true">📷</span><span class="step-n">03 /</span><b>Find and scan</b><span class="step-text">Spot a piece in the pile? Scan it to see which set needs it.</span></li>
     </ol>
+    <div class="step-dots" id="stepDots" aria-hidden="true"><span class="on"></span><span></span><span></span></div>
     <footer class="welcome-foot small muted">
       <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Use</a>
       <p>LEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this app.</p>
     </footer>`;
+  const steps = $('#steps');
+  steps.addEventListener('scroll', () => {
+    const cards = [...steps.children];
+    const mid = steps.scrollLeft + steps.clientWidth / 2;
+    const i = cards.reduce((best, c, n) => (Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid) < Math.abs(cards[best].offsetLeft + cards[best].offsetWidth / 2 - mid) ? n : best), 0);
+    [...$('#stepDots').children].forEach((d, n) => d.classList.toggle('on', n === i));
+  }, { passive: true });
   if ($('#startBtn')) {
     $('#startBtn').onclick = () => { state.welcomed = true; save(); go('#add'); render(); };
     return;
