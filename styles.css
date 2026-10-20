@@ -503,3 +503,21 @@ body.welcome .topbar {
   .lf-toolbar .sort-select > span { display: inline; }
   .lf-toolbar .filter-btn { flex: 1; justify-content: center; }
 }
+
+/* Enlarged piece panel */
+.piece-sheet h2 { margin: 14px 0 4px; }
+.piece-sheet .meta { display: flex; align-items: center; gap: 6px; }
+.piece-sheet .big-pic { border: 3px solid transparent; }
+.piece-sheet .big-pic.missing { border-color: var(--miss); }
+.piece-sheet .big-pic img { width: 82%; max-width: 340px; }
+.counter.big { justify-content: center; gap: 18px; padding: 6px 0 4px; }
+.counter.big button { width: 60px; height: 54px; font-size: 28px; border-radius: 14px; }
+.counter.big .count { flex: none; font-size: 22px; min-width: 110px; }
+.crow .grow[data-act] { cursor: pointer; }
+
+/* Compact view: small − count + */
+.mini-counter { display: flex; align-items: center; gap: 4px; flex: none; }
+.mini-counter button { width: 34px; height: 34px; border-radius: 10px; border: 0; background: var(--chip); font-size: 19px; font-weight: 700; color: var(--text); }
+.mini-counter .count { min-width: 40px; text-align: center; font-weight: 700; font-size: 14px; }
+.mini-counter .count.done { color: var(--ok); }
+.mini-counter .count .of { color: var(--muted); font-weight: 500; }

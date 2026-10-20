@@ -1143,11 +1143,44 @@ const PART_SORTS = [
   ['missing', 'Most missing first'],
   ['partnum', 'Part number'],
 ];
-const PART_VIEWS = [['grid', '▦', 'Grid'], ['list', '☰', 'List'], ['check', '≡', 'Checklist']];
+const PART_VIEWS = [['grid', '▦', 'Grid'], ['list', '☰', 'List'], ['check', '≡', 'Compact']];
+// Enlarged view of one piece in a set, with − / + to record how many you've found.
+function showSetPartSheet(setNum, key, onChange) {
+  const set = state.sets[setNum];
+  const p = set && set.parts.find((x) => x.key === key);
+  if (!p) return;
+  const draw = () => {
+    const missing = p.qty - p.have;
+    openSheet(`
+      <div class="piece-sheet">
+        <div class="big-pic ${missing ? 'missing' : ''}">${partImg(p)}</div>
+        <h2>${esc(p.name)}</h2>
+        <div class="meta muted">${swatch(p.rgb)} ${esc(p.colorName)} · part #${esc(p.partNum)}</div>
+        <p>${missing ? `<span class="badge miss">need ${missing} more</span>` : '<span class="badge ok">Got them all ✓</span>'}</p>
+        <div class="counter big">
+          <button data-step="-1" aria-label="One less">−</button>
+          <span class="count">${p.have}<span class="of"> / ${p.qty} found</span></span>
+          <button data-step="1" aria-label="One more">+</button>
+        </div>
+        <p class="small"><a href="https://rebrickable.com/parts/${encodeURIComponent(p.partNum)}/" target="_blank" rel="noopener">More pictures on Rebrickable ↗</a></p>
+        <button class="btn block" data-close>Done</button>
+      </div>`);
+    document.querySelectorAll('[data-step]').forEach((b) => {
+      b.onclick = () => { changeHave(setNum, key, Number(b.dataset.step)); draw(); };
+    });
+    // Closing (Done or tapping outside) refreshes the page behind with the new counts.
+    const sheet = $('#sheet');
+    sheet.onclick = (e) => {
+      if (e.target === sheet || e.target.closest('[data-close]')) { closeSheet(); onChange(); }
+    };
+  };
+  draw();
+}
+
 const PART_VIEW_HINTS = {
-  grid: 'Tap a picture to tick it off / untick it. Use − and + for pieces you need several of.',
-  list: 'Tap a picture to tick it off / untick it. Use − and + for pieces you need several of.',
-  check: 'Tap the box on the right to tick a piece off. For pieces you need several of, each tap adds one.',
+  grid: 'Use − and + to record how many you\'ve found. Tap a picture to see it bigger.',
+  list: 'Use − and + to record how many you\'ve found. Tap a picture to see it bigger.',
+  check: 'Use − and + to record how many you\'ve found. Tap a piece to see it bigger.',
 };
 
 // Groups pieces for the chosen sort: headings by colour or type, otherwise one list.
@@ -1177,7 +1210,7 @@ function renderPartItems(items) {
       const missing = p.qty - p.have;
       return `
       <div class="pitem prow ${missing ? 'missing' : 'done'}" data-key="${esc(p.key)}">
-        <div class="prow-pic" data-act="toggle">${partImg(p)}</div>
+        <div class="prow-pic" data-act="view">${partImg(p)}</div>
         <div class="grow">
           <div class="pname">${esc(p.name)}</div>
           <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
@@ -1196,14 +1229,16 @@ function renderPartItems(items) {
       const done = p.have >= p.qty;
       return `
       <div class="pitem crow ${done ? 'done' : 'missing'}" data-key="${esc(p.key)}">
-        <div class="crow-pic">${partImg(p)}</div>
-        <div class="grow">
+        <div class="crow-pic" data-act="view">${partImg(p)}</div>
+        <div class="grow" data-act="view">
           <div class="crow-name">${esc(p.name)}</div>
           <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
         </div>
-        <button class="check-btn ${done ? 'on' : p.have ? 'partial' : ''} ${p.qty === 1 ? 'single' : ''}" data-act="tick" aria-label="${done ? 'Untick' : 'Tick one'}">
-          ${p.qty === 1 ? (done ? '✓' : '') : `${p.have}/${p.qty}`}
-        </button>
+        <div class="mini-counter">
+          <button data-act="minus" aria-label="One less">−</button>
+          <span class="count ${done ? 'done' : ''}">${p.have}<span class="of">/${p.qty}</span></span>
+          <button data-act="plus" aria-label="One more">+</button>
+        </div>
       </div>`;
     }).join('')}</div>`;
   }
@@ -1211,7 +1246,7 @@ function renderPartItems(items) {
     const missing = p.qty - p.have;
     return `
         <div class="pitem part ${missing ? 'missing' : 'done'}" data-key="${esc(p.key)}">
-          <div class="pic" data-act="toggle">
+          <div class="pic" data-act="view">
             ${partImg(p)}
             ${missing ? `<span class="need-tag">need ${missing}</span>` : `<span class="tick">✓</span>`}
           </div>
@@ -1266,16 +1301,6 @@ function renderSet(setNum) {
   const inFilter = set.parts.filter((p) =>
     f === 'all' ? true : f === 'missing' ? p.have < p.qty : p.have >= p.qty);
 
-  // Colour and type chips, counting different parts; each row respects the other filter.
-  const colours = new Map(), types = new Map();
-  for (const p of inFilter) {
-    const t = pieceType(p);
-    if (!ui.partType || t === ui.partType) {
-      const c = colours.get(p.colorName) || { name: p.colorName, rgb: p.rgb, n: 0 };
-      c.n++; colours.set(p.colorName, c);
-    }
-    if (!ui.partColor || p.colorName === ui.partColor) types.set(t, (types.get(t) || 0) + 1);
-  }
   if (ui.partColor && !inFilter.some((p) => p.colorName === ui.partColor)) ui.partColor = '';
   if (ui.partType && !inFilter.some((p) => pieceType(p) === ui.partType)) ui.partType = '';
   const parts = inFilter.filter((p) =>
@@ -1295,13 +1320,14 @@ function renderSet(setNum) {
       </div>
     </div>
     ${renderSwapBox(set)}
-    <div class="sets-toolbar">
+    <div class="sets-toolbar lf-toolbar">
       <label class="sort-select">
         <span class="muted small">Sort</span>
         <select id="partSort" aria-label="Sort pieces">
           ${PART_SORTS.map(([v, label]) => `<option value="${v}" ${ui.partSort === v ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
       </label>
+      ${filterButton(ui.partColor, ui.partType)}
       <div class="view-toggle" role="group" aria-label="View">
         ${PART_VIEWS.map(([v, icon, label]) => `<button data-pview="${v}" class="${ui.partView === v ? 'active' : ''}" aria-label="${label} view" title="${label}">${icon}</button>`).join('')}
       </div>
@@ -1311,14 +1337,7 @@ function renderSet(setNum) {
       <button data-f="have" class="${f === 'have' ? 'active' : ''}">Have (${st.kinds - st.kindsMissing})</button>
       <button data-f="all" class="${f === 'all' ? 'active' : ''}">All (${st.kinds})</button>
     </div>
-    ${colours.size > 1 || ui.partColor ? `<div class="chips">
-      <button class="chip ${!ui.partColor ? 'active' : ''}" data-pcolor="">All colours</button>
-      ${[...colours.values()].sort((a, b) => b.n - a.n).map((c) => `<button class="chip ${ui.partColor === c.name ? 'active' : ''}" data-pcolor="${esc(c.name)}">${swatch(c.rgb)}${esc(c.name)} (${c.n})</button>`).join('')}
-    </div>` : ''}
-    ${types.size > 1 || ui.partType ? `<div class="chips">
-      <button class="chip ${!ui.partType ? 'active' : ''}" data-ptype="">All types</button>
-      ${PIECE_TYPES.filter((t) => types.get(t)).map((t) => `<button class="chip ${ui.partType === t ? 'active' : ''}" data-ptype="${esc(t)}">${esc(t)} (${types.get(t)})</button>`).join('')}
-    </div>` : ''}
+    ${activeFilterTags(ui.partColor, ui.partColor ? set.parts.find((p) => p.colorName === ui.partColor).rgb : '', ui.partType, `Showing ${parts.length} of ${inFilter.length}:`)}
     <p class="muted small">${PART_VIEW_HINTS[ui.partView]}</p>`;
 
   if (!parts.length) {
@@ -1354,15 +1373,20 @@ function renderSet(setNum) {
   document.querySelectorAll('[data-pview]').forEach((b) => {
     b.onclick = () => { ui.partView = b.dataset.pview; savePref('partView', b.dataset.pview); rerender(); };
   });
-  document.querySelectorAll('[data-pcolor]').forEach((b) => { b.onclick = () => { ui.partColor = b.dataset.pcolor; rerender(); }; });
-  document.querySelectorAll('[data-ptype]').forEach((b) => { b.onclick = () => { ui.partType = b.dataset.ptype; rerender(); }; });
+  $('#filterBtn').onclick = () => showFilterSheet(
+    inFilter.map((p) => ({ colour: p.colorName, rgb: p.rgb, type: pieceType(p), n: 1 })),
+    { colour: ui.partColor, type: ui.partType },
+    ({ colour, type }) => { ui.partColor = colour; ui.partType = type; rerender(); },
+    ['different piece', 'different pieces']);
+  document.querySelectorAll('[data-clear]').forEach((b) => {
+    b.onclick = () => { if (b.dataset.clear === 'colour') ui.partColor = ''; else ui.partType = ''; rerender(); };
+  });
   $('#view').querySelectorAll('.pitem').forEach((el) => {
     el.onclick = (e) => {
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (!act) return;
       const p = set.parts.find((x) => x.key === el.dataset.key);
-      if (act === 'toggle') changeHave(setNum, p.key, p.have >= p.qty ? -p.qty : p.qty - p.have);
-      if (act === 'tick') changeHave(setNum, p.key, p.have >= p.qty ? -p.qty : 1);
+      if (act === 'view') { showSetPartSheet(setNum, p.key, rerender); return; }
       if (act === 'plus') changeHave(setNum, p.key, 1);
       if (act === 'minus') changeHave(setNum, p.key, -1);
       const y = window.scrollY;
@@ -1509,19 +1533,12 @@ function renderMissing() {
           ${MISSING_SORTS.map(([v, label]) => `<option value="${v}" ${ui.missingSort === v ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
       </label>
-      <button class="filter-btn ${filtering ? 'on' : ''}" id="filterBtn">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-        <span class="fword">Filter</span>${filtering ? `<span class="fcount">${(ui.missingColor ? 1 : 0) + (ui.missingType ? 1 : 0)}</span>` : ''}
-      </button>
+      ${filterButton(ui.missingColor, ui.missingType)}
       <div class="view-toggle" role="group" aria-label="View">
         ${MISSING_VIEWS.map(([v, icon, label]) => `<button data-mview="${v}" class="${ui.missingView === v ? 'active' : ''}" aria-label="${label} view" title="${label}">${icon}</button>`).join('')}
       </div>
     </div>
-    ${filtering ? `<div class="active-filters">
-      <span class="muted small">Showing ${shownPieces} of ${totalPieces}:</span>
-      ${ui.missingColor ? `<button class="pill" data-clear="colour">${swatch(activeColour)}${esc(ui.missingColor)} ✕</button>` : ''}
-      ${ui.missingType ? `<button class="pill" data-clear="type">${esc(ui.missingType)} ✕</button>` : ''}
-    </div>` : ''}`;
+    ${activeFilterTags(ui.missingColor, activeColour, ui.missingType, `Showing ${shownPieces} of ${totalPieces}:`)}`;
 
   if (!shown.length) html += `<div class="empty">No missing pieces match these filters.</div>`;
   for (const grp of groupMissing(shown)) {
@@ -1536,7 +1553,10 @@ function renderMissing() {
   document.querySelectorAll('[data-mview]').forEach((b) => {
     b.onclick = () => { ui.missingView = b.dataset.mview; savePref('missingView2', b.dataset.mview); rerender(); };
   });
-  $('#filterBtn').onclick = () => showMissingFilter(all);
+  $('#filterBtn').onclick = () => showFilterSheet(
+    all.map((g) => ({ colour: g.part.colorName, rgb: g.part.rgb, type: g.type, n: g.total })),
+    { colour: ui.missingColor, type: ui.missingType },
+    ({ colour, type }) => { ui.missingColor = colour; ui.missingType = type; renderMissing(); window.scrollTo(0, 0); });
   document.querySelectorAll('[data-clear]').forEach((b) => {
     b.onclick = () => { if (b.dataset.clear === 'colour') ui.missingColor = ''; else ui.missingType = ''; rerender(); };
   });
@@ -1586,19 +1606,21 @@ function renderMissingItems(items) {
       </div>`).join('')}</div>`;
 }
 
-// Bottom panel with every colour and type laid out in a grid (no sideways scrolling).
-function showMissingFilter(all) {
-  let colour = ui.missingColor, type = ui.missingType;
+// Bottom panel with every colour and type laid out in a grid (no sideways
+// scrolling). `entries` are { colour, rgb, type, n }; counts respect the other choice.
+function showFilterSheet(entries, current, onApply, unit = ['piece', 'pieces']) {
+  let colour = current.colour, type = current.type;
   const draw = () => {
     const colours = new Map(), types = new Map();
-    for (const g of all) {
-      if (!type || g.type === type) {
-        const c = colours.get(g.part.colorName) || { name: g.part.colorName, rgb: g.part.rgb, n: 0 };
-        c.n += g.total; colours.set(c.name, c);
+    let count = 0;
+    for (const e of entries) {
+      if (!type || e.type === type) {
+        const c = colours.get(e.colour) || { name: e.colour, rgb: e.rgb, n: 0 };
+        c.n += e.n; colours.set(e.colour, c);
       }
-      if (!colour || g.part.colorName === colour) types.set(g.type, (types.get(g.type) || 0) + g.total);
+      if (!colour || e.colour === colour) types.set(e.type, (types.get(e.type) || 0) + e.n);
+      if ((!colour || e.colour === colour) && (!type || e.type === type)) count += e.n;
     }
-    const count = all.filter((g) => (!colour || g.part.colorName === colour) && (!type || g.type === type)).reduce((n, g) => n + g.total, 0);
     openSheet(`
       <div class="filter-sheet">
         <div class="row"><h2 class="grow">Filter</h2><button class="link-btn" id="fClear">Clear all</button></div>
@@ -1612,14 +1634,31 @@ function showMissingFilter(all) {
           ${PIECE_TYPES.filter((t) => types.get(t)).map((t) => `
             <button class="fchip ${type === t ? 'on' : ''}" data-ft="${esc(t)}"><span>${esc(t)}</span><em>${types.get(t)}</em></button>`).join('')}
         </div>
-        <button class="btn primary block" id="fApply">Show ${count} ${count === 1 ? 'piece' : 'pieces'}</button>
+        <button class="btn primary block" id="fApply">Show ${count} ${count === 1 ? unit[0] : unit[1]}</button>
       </div>`);
     document.querySelectorAll('[data-fc]').forEach((b) => { b.onclick = () => { colour = colour === b.dataset.fc ? '' : b.dataset.fc; draw(); }; });
     document.querySelectorAll('[data-ft]').forEach((b) => { b.onclick = () => { type = type === b.dataset.ft ? '' : b.dataset.ft; draw(); }; });
     $('#fClear').onclick = () => { colour = ''; type = ''; draw(); };
-    $('#fApply').onclick = () => { ui.missingColor = colour; ui.missingType = type; closeSheet(); renderMissing(); window.scrollTo(0, 0); };
+    $('#fApply').onclick = () => { closeSheet(); onApply({ colour, type }); };
   };
   draw();
+}
+
+function filterButton(colour, type) {
+  const n = (colour ? 1 : 0) + (type ? 1 : 0);
+  return `<button class="filter-btn ${n ? 'on' : ''}" id="filterBtn">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <span class="fword">Filter</span>${n ? `<span class="fcount">${n}</span>` : ''}
+      </button>`;
+}
+
+function activeFilterTags(colour, rgb, type, label) {
+  if (!colour && !type) return '';
+  return `<div class="active-filters">
+      <span class="muted small">${label}</span>
+      ${colour ? `<button class="pill" data-clear="colour">${swatch(rgb)}${esc(colour)} ✕</button>` : ''}
+      ${type ? `<button class="pill" data-clear="type">${esc(type)} ✕</button>` : ''}
+    </div>`;
 }
 
 function showPartSheet(key) {
