@@ -23,7 +23,7 @@ const SUPABASE_KEY = 'sb_publishable_vWTdvZvwYgGsKhE0m7DbPg_MP_UbMqr';
 /* ---------- State ---------- */
 
 let state = load();
-let ui = { setFilter: 'missing', missingColor: '', missingSearch: '', setSearch: '', missingView: loadPref('missingView', 'list'), missingType: '', setSort: loadPref('setSort', 'closest'), setView: loadPref('setView', 'grid'), setsShow: loadPref('setsShow', 'all') };
+let ui = { setFilter: 'missing', missingColor: '', missingSearch: '', setSearch: '', missingView: loadPref('missingView', 'list'), missingType: '', setSort: loadPref('setSort', 'closest'), setView: loadPref('setView', 'grid'), setsShow: loadPref('setsShow', 'all'), partView: loadPref('partView', 'grid'), partSort: loadPref('partSort', 'colour'), partColor: '', partType: '', partSetNum: '' };
 let lastUndo = null;
 let scanState = null; // { photoUrl, loading, error, items }
 
@@ -1137,6 +1137,97 @@ function renderAdd() {
   input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
 }
 
+const PART_SORTS = [
+  ['colour', 'Colour'],
+  ['type', 'Type of piece'],
+  ['missing', 'Most missing first'],
+  ['partnum', 'Part number'],
+];
+const PART_VIEWS = [['grid', '▦', 'Grid'], ['list', '☰', 'List'], ['check', '≡', 'Checklist']];
+const PART_VIEW_HINTS = {
+  grid: 'Tap a picture to tick it off / untick it. Use − and + for pieces you need several of.',
+  list: 'Tap a picture to tick it off / untick it. Use − and + for pieces you need several of.',
+  check: 'Tap the box on the right to tick a piece off. For pieces you need several of, each tap adds one.',
+};
+
+// Groups pieces for the chosen sort: headings by colour or type, otherwise one list.
+function groupParts(parts) {
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  if (ui.partSort === 'colour' || ui.partSort === 'type') {
+    const groups = new Map();
+    for (const p of parts) {
+      const k = ui.partSort === 'colour' ? p.colorName : pieceType(p);
+      if (!groups.has(k)) groups.set(k, { title: k, rgb: ui.partSort === 'colour' ? p.rgb : '', items: [] });
+      groups.get(k).items.push(p);
+    }
+    const order = ui.partSort === 'type'
+      ? (a, b) => PIECE_TYPES.indexOf(a.title) - PIECE_TYPES.indexOf(b.title)
+      : (a, b) => a.title.localeCompare(b.title);
+    return [...groups.values()].sort(order).map((g) => ({ ...g, items: g.items.sort(ui.partSort === 'type' ? (a, b) => a.colorName.localeCompare(b.colorName) || byName(a, b) : byName) }));
+  }
+  const items = [...parts];
+  if (ui.partSort === 'missing') items.sort((a, b) => (b.qty - b.have) - (a.qty - a.have) || a.colorName.localeCompare(b.colorName) || byName(a, b));
+  else items.sort((a, b) => a.partNum.localeCompare(b.partNum, undefined, { numeric: true }) || a.colorName.localeCompare(b.colorName));
+  return [{ title: '', items }];
+}
+
+function renderPartItems(items) {
+  if (ui.partView === 'list') {
+    return `<div class="card part-list">${items.map((p) => {
+      const missing = p.qty - p.have;
+      return `
+      <div class="pitem prow ${missing ? 'missing' : 'done'}" data-key="${esc(p.key)}">
+        <div class="prow-pic" data-act="toggle">${partImg(p)}${missing ? '' : '<span class="tick">✓</span>'}</div>
+        <div class="grow">
+          <div class="pname">${esc(p.name)}</div>
+          <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
+          ${missing ? `<span class="badge miss">need ${missing}</span>` : '<span class="badge ok">Got them ✓</span>'}
+        </div>
+        <div class="counter vertical">
+          <button data-act="plus" aria-label="One more">+</button>
+          <span class="count">${p.have}<span class="of">/${p.qty}</span></span>
+          <button data-act="minus" aria-label="One less">−</button>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  }
+  if (ui.partView === 'check') {
+    return `<div class="card part-list">${items.map((p) => {
+      const done = p.have >= p.qty;
+      return `
+      <div class="pitem crow ${done ? 'done' : ''}" data-key="${esc(p.key)}">
+        <div class="crow-pic">${partImg(p)}</div>
+        <div class="grow">
+          <div class="crow-name">${esc(p.name)}</div>
+          <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
+        </div>
+        <button class="check-btn ${done ? 'on' : p.have ? 'part' : ''} ${p.qty === 1 ? 'single' : ''}" data-act="tick" aria-label="${done ? 'Untick' : 'Tick one'}">
+          ${p.qty === 1 ? (done ? '✓' : '') : `${p.have}/${p.qty}`}
+        </button>
+      </div>`;
+    }).join('')}</div>`;
+  }
+  return `<div class="grid">${items.map((p) => {
+    const missing = p.qty - p.have;
+    return `
+        <div class="pitem part ${missing ? 'missing' : 'done'}" data-key="${esc(p.key)}">
+          <div class="pic" data-act="toggle">
+            ${partImg(p)}
+            ${missing ? `<span class="need-tag">need ${missing}</span>` : `<span class="tick">✓</span>`}
+          </div>
+          <div class="info">
+            <div class="pname">${esc(p.name)}</div>
+            <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
+          </div>
+          <div class="counter">
+            <button data-act="minus" aria-label="One less">−</button>
+            <span class="count">${p.have}<span class="of"> / ${p.qty}</span></span>
+            <button data-act="plus" aria-label="One more">+</button>
+          </div>
+        </div>`;
+  }).join('')}</div>`;
+}
+
 function renderSwapBox(set) {
   const swaps = swapsFor(set);
   if (!swaps.length) return '';
@@ -1171,8 +1262,24 @@ function renderSet(setNum) {
   setTitle(set.name);
   const st = setStats(set);
   const f = ui.setFilter;
-  const parts = set.parts.filter((p) =>
+  if (ui.partSetNum !== setNum) { ui.partSetNum = setNum; ui.partColor = ''; ui.partType = ''; }
+  const inFilter = set.parts.filter((p) =>
     f === 'all' ? true : f === 'missing' ? p.have < p.qty : p.have >= p.qty);
+
+  // Colour and type chips, counting different parts; each row respects the other filter.
+  const colours = new Map(), types = new Map();
+  for (const p of inFilter) {
+    const t = pieceType(p);
+    if (!ui.partType || t === ui.partType) {
+      const c = colours.get(p.colorName) || { name: p.colorName, rgb: p.rgb, n: 0 };
+      c.n++; colours.set(p.colorName, c);
+    }
+    if (!ui.partColor || p.colorName === ui.partColor) types.set(t, (types.get(t) || 0) + 1);
+  }
+  if (ui.partColor && !inFilter.some((p) => p.colorName === ui.partColor)) ui.partColor = '';
+  if (ui.partType && !inFilter.some((p) => pieceType(p) === ui.partType)) ui.partType = '';
+  const parts = inFilter.filter((p) =>
+    (!ui.partColor || p.colorName === ui.partColor) && (!ui.partType || pieceType(p) === ui.partType));
 
   let html = `
     <div class="card set-card" style="cursor:default">
@@ -1188,39 +1295,41 @@ function renderSet(setNum) {
       </div>
     </div>
     ${renderSwapBox(set)}
+    <div class="sets-toolbar">
+      <label class="sort-select">
+        <span class="muted small">Sort</span>
+        <select id="partSort" aria-label="Sort pieces">
+          ${PART_SORTS.map(([v, label]) => `<option value="${v}" ${ui.partSort === v ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </label>
+      <div class="view-toggle" role="group" aria-label="View">
+        ${PART_VIEWS.map(([v, icon, label]) => `<button data-pview="${v}" class="${ui.partView === v ? 'active' : ''}" aria-label="${label} view" title="${label}">${icon}</button>`).join('')}
+      </div>
+    </div>
     <div class="seg" id="filter">
       <button data-f="missing" class="${f === 'missing' ? 'active' : ''}">Missing (${st.kindsMissing})</button>
       <button data-f="have" class="${f === 'have' ? 'active' : ''}">Have (${st.kinds - st.kindsMissing})</button>
       <button data-f="all" class="${f === 'all' ? 'active' : ''}">All (${st.kinds})</button>
     </div>
-    <p class="muted small">Tap a picture to tick it off / untick it. Use − and + for pieces you need several of.</p>`;
+    ${colours.size > 1 || ui.partColor ? `<div class="chips">
+      <button class="chip ${!ui.partColor ? 'active' : ''}" data-pcolor="">All colours</button>
+      ${[...colours.values()].sort((a, b) => b.n - a.n).map((c) => `<button class="chip ${ui.partColor === c.name ? 'active' : ''}" data-pcolor="${esc(c.name)}">${swatch(c.rgb)}${esc(c.name)} (${c.n})</button>`).join('')}
+    </div>` : ''}
+    ${types.size > 1 || ui.partType ? `<div class="chips">
+      <button class="chip ${!ui.partType ? 'active' : ''}" data-ptype="">All types</button>
+      ${PIECE_TYPES.filter((t) => types.get(t)).map((t) => `<button class="chip ${ui.partType === t ? 'active' : ''}" data-ptype="${esc(t)}">${esc(t)} (${types.get(t)})</button>`).join('')}
+    </div>` : ''}
+    <p class="muted small">${PART_VIEW_HINTS[ui.partView]}</p>`;
 
   if (!parts.length) {
-    html += f === 'missing'
+    html += f === 'missing' && !ui.partColor && !ui.partType
       ? `<div class="empty"><div class="big">🎉</div>Nothing missing — this set is complete!</div>`
-      : `<div class="empty">No pieces here yet.</div>`;
+      : `<div class="empty">No pieces here.</div>`;
   } else {
-    html += `<div class="grid">`;
-    for (const p of parts) {
-      const missing = p.qty - p.have;
-      html += `
-        <div class="part ${missing ? 'missing' : 'done'}" data-key="${esc(p.key)}">
-          <div class="pic" data-act="toggle">
-            ${partImg(p)}
-            ${missing ? `<span class="need-tag">need ${missing}</span>` : `<span class="tick">✓</span>`}
-          </div>
-          <div class="info">
-            <div class="pname">${esc(p.name)}</div>
-            <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
-          </div>
-          <div class="counter">
-            <button data-act="minus" aria-label="One less">−</button>
-            <span class="count">${p.have}<span class="of"> / ${p.qty}</span></span>
-            <button data-act="plus" aria-label="One more">+</button>
-          </div>
-        </div>`;
+    for (const g of groupParts(parts)) {
+      if (g.title) html += `<h3 class="part-group">${g.rgb ? swatch(g.rgb) : ''}${esc(g.title)} <span class="muted">(${g.items.length})</span></h3>`;
+      html += renderPartItems(g.items);
     }
-    html += `</div>`;
   }
 
   html += `
@@ -1239,12 +1348,21 @@ function renderSet(setNum) {
   document.querySelectorAll('#filter button').forEach((b) => {
     b.onclick = () => { ui.setFilter = b.dataset.f; renderSet(setNum); };
   });
-  $('#view').querySelectorAll('.part').forEach((el) => {
+  const rerender = () => { const y = window.scrollY; renderSet(setNum); window.scrollTo(0, y); };
+  const sortSel = $('#partSort');
+  sortSel.onchange = () => { ui.partSort = sortSel.value; savePref('partSort', sortSel.value); rerender(); };
+  document.querySelectorAll('[data-pview]').forEach((b) => {
+    b.onclick = () => { ui.partView = b.dataset.pview; savePref('partView', b.dataset.pview); rerender(); };
+  });
+  document.querySelectorAll('[data-pcolor]').forEach((b) => { b.onclick = () => { ui.partColor = b.dataset.pcolor; rerender(); }; });
+  document.querySelectorAll('[data-ptype]').forEach((b) => { b.onclick = () => { ui.partType = b.dataset.ptype; rerender(); }; });
+  $('#view').querySelectorAll('.pitem').forEach((el) => {
     el.onclick = (e) => {
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (!act) return;
       const p = set.parts.find((x) => x.key === el.dataset.key);
       if (act === 'toggle') changeHave(setNum, p.key, p.have >= p.qty ? -p.qty : p.qty - p.have);
+      if (act === 'tick') changeHave(setNum, p.key, p.have >= p.qty ? -p.qty : 1);
       if (act === 'plus') changeHave(setNum, p.key, 1);
       if (act === 'minus') changeHave(setNum, p.key, -1);
       const y = window.scrollY;

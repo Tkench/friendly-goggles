@@ -389,3 +389,31 @@ body.welcome .topbar {
 /* Sets tab: small colourful brick stack (greyed out like the other icons when not selected) */
 .tab-bricks { width: 28px; height: 24px; display: block; }
 .tabs button .ico { height: 28px; display: flex; align-items: center; justify-content: center; }
+
+/* Set page: list and checklist views, group headings */
+.part-group { display: flex; align-items: center; gap: 8px; font-size: 15px; margin: 16px 2px 8px; }
+.part-list { padding: 2px 12px; }
+.prow, .crow { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.prow:last-child, .crow:last-child { border-bottom: 0; }
+.prow .pname { font-weight: 600; line-height: 1.25; font-size: 15px; }
+.prow .meta, .crow .meta { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin: 2px 0 4px; }
+.prow-pic { position: relative; width: 72px; height: 72px; flex: none; background: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 2px solid transparent; }
+.prow.missing .prow-pic { border-color: var(--miss); }
+.prow-pic img { width: 88%; height: 88%; object-fit: contain; }
+.prow-pic .tick { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; font-size: 13px; }
+.counter.vertical { flex-direction: column; padding: 0; gap: 2px; flex: none; }
+.counter.vertical button { width: 40px; height: 34px; font-size: 20px; }
+.counter.vertical .count { font-size: 14px; }
+.crow { gap: 10px; padding: 8px 0; }
+.crow-pic { width: 44px; height: 44px; flex: none; background: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.crow-pic img { width: 88%; height: 88%; object-fit: contain; }
+.crow-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crow.done .crow-name { color: var(--muted); }
+.check-btn {
+  flex: none; min-width: 44px; height: 44px; padding: 0 8px; border-radius: 12px;
+  border: 2px solid var(--line); background: var(--card); font-weight: 700; font-size: 15px; color: var(--text);
+}
+.check-btn.part { border-color: var(--miss); color: var(--miss); }
+.check-btn.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+.check-btn.single { width: 44px; font-size: 20px; }
+.prow > .grow, .crow > .grow { flex: 1; min-width: 0; }
