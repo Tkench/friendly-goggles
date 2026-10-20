@@ -15,8 +15,8 @@ const TIP_URL = '';
 // Supabase project for login, backup and sync (see supabase/setup.sql). The
 // "anon" key is meant to be public: row-level security keeps each person's
 // data private. Accounts stay hidden while these are empty.
-const SUPABASE_URL = '';
-const SUPABASE_KEY = '';
+const SUPABASE_URL = 'https://nioytuzuejdzznaxvlic.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_vWTdvZvwYgGsKhE0m7DbPg_MP_UbMqr';
 
 /* ---------- State ---------- */
 
