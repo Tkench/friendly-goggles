@@ -1,4 +1,4 @@
-/* Brick Finder — track missing LEGO pieces across your sets.
+/* Last Brick — track missing LEGO pieces across your sets.
  *
  * Parts lists come from the Rebrickable API (free key required).
  * Photo recognition of a single piece uses the Brickognize API.
@@ -7,6 +7,7 @@
  */
 'use strict';
 
+// Storage names keep the app's original name so existing data and logins carry over.
 const STORE_KEY = 'brickfinder.v1';
 const RB_API = 'https://rebrickable.com/api/v3/lego';
 const BRICKOGNIZE_API = 'https://api.brickognize.com/predict/parts/';
@@ -638,7 +639,7 @@ function render() {
 function setTitle(t) { $('#title').textContent = t; }
 
 function renderWelcome() {
-  setTitle('Brick Finder');
+  setTitle('Last Brick');
   $('#view').innerHTML = `
     <div class="card">
       <h2>👋 Welcome!</h2>
@@ -658,7 +659,7 @@ function renderWelcome() {
     </div>
     ${syncEnabled() ? `
     <div class="card">
-      <h2>Already use Brick Finder?</h2>
+      <h2>Already use Last Brick?</h2>
       <p class="muted small">Log in to bring your sets (and your key) onto this device.</p>
       <a class="btn block" href="#settings">☁️ Log in</a>
     </div>` : ''}`;
@@ -835,7 +836,7 @@ function renderSets() {
     }
   }
   if (TIP_URL && sets.length) {
-    html += `<p class="center small muted" style="margin-top:20px">Enjoying Brick Finder? <a href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a></p>`;
+    html += `<p class="center small muted" style="margin-top:20px">Enjoying Last Brick? <a href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a></p>`;
   }
   $('#view').innerHTML = html;
   $('#addBtn').onclick = () => go('#add');
@@ -1382,8 +1383,8 @@ function renderSettings() {
     </div>
     ${TIP_URL ? `
     <div class="card">
-      <h2>☕ Support Brick Finder</h2>
-      <p class="muted small">Brick Finder is free. If it's helped you finish a set, you can say thanks with a small tip.</p>
+      <h2>☕ Support Last Brick</h2>
+      <p class="muted small">Last Brick is free. If it's helped you finish a set, you can say thanks with a small tip.</p>
       <a class="btn primary block" href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a>
     </div>` : ''}
     <div class="card small muted">
@@ -1396,10 +1397,10 @@ function renderSettings() {
   };
   renderAccountCard();
   $('#exportBtn').onclick = () => {
-    const blob = new Blob([JSON.stringify({ app: 'brickfinder', version: 1, exportedAt: new Date().toISOString(), sets: state.sets }, null, 1)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ app: 'lastbrick', version: 1, exportedAt: new Date().toISOString(), sets: state.sets }, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `brick-finder-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `last-brick-backup-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
@@ -1410,7 +1411,7 @@ function renderSettings() {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      if (!data || typeof data.sets !== 'object') throw new Error('Not a Brick Finder backup file');
+      if (!data || typeof data.sets !== 'object') throw new Error('Not a Last Brick backup file');
       const n = Object.keys(data.sets).length;
       if (!await askConfirm({ title: `Restore ${n} sets from this backup?`, text: 'Sets with the same number on this phone will be replaced.', ok: 'Restore' })) return;
       Object.assign(state.sets, data.sets); save();

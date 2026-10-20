@@ -1,4 +1,4 @@
--- Brick Finder: login, backup and sync.
+-- Last Brick: login, backup and sync.
 -- Paste this whole file into Supabase → SQL Editor → New query, then press Run.
 
 -- One row per person holding their sets, ticks and Rebrickable key.

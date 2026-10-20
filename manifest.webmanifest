@@ -1,6 +1,6 @@
 {
-  "name": "Brick Finder",
-  "short_name": "Brick Finder",
+  "name": "Last Brick",
+  "short_name": "Last Brick",
   "description": "Track missing pieces for your LEGO sets.",
   "start_url": "./#sets",
   "scope": "./",
