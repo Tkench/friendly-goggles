@@ -12,7 +12,8 @@
 const RB = 'https://rebrickable.com/api/v3/lego';
 const KEY = Deno.env.get('REBRICKABLE_KEY') ?? '';
 const DB = (Deno.env.get('SUPABASE_URL') ?? '') + '/rest/v1/set_cache';
-const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+// Supabase provides one of these automatically (older or newer key system).
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SECRET_KEY') || '';
 
 const DAY = 24 * 60 * 60 * 1000;
 const KEEP_FOR = 30 * DAY; // parts lists rarely change
@@ -41,7 +42,10 @@ async function rebrickable(path: string): Promise<any> {
   return res.json();
 }
 
-const dbHeaders = { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY };
+// Older keys are JWTs and also go in Authorization; newer sb_secret_ keys go in apikey only.
+const dbHeaders: Record<string, string> = SERVICE_KEY.startsWith('eyJ')
+  ? { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY }
+  : { apikey: SERVICE_KEY };
 
 // Returns the cached value for `key` if it's newer than maxAge, otherwise
 // loads it fresh and stores it. Cache problems never stop a lookup.
