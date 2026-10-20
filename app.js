@@ -739,6 +739,45 @@ function renderWelcome() {
   };
 }
 
+/* ---------- Search box with clear (✕) and Cancel ----------
+ * Pages re-render on every keystroke, so bindSearch puts focus and the
+ * cursor back afterwards. Cancel and ✕ act on pointerdown so the box
+ * doesn't lose focus (and hide them) before the tap lands.
+ */
+function searchBox(id, value, placeholder) {
+  return `
+    <div class="search ${value ? 'has-text' : ''}">
+      <div class="search-field">
+        <input class="field" id="${id}" type="search" enterkeyhint="search" autocomplete="off" placeholder="${esc(placeholder)}" value="${esc(value)}">
+        <button type="button" class="search-clear" aria-label="Clear search">✕</button>
+      </div>
+      <button type="button" class="search-cancel">Cancel</button>
+    </div>`;
+}
+
+function bindSearch(id, setValue, rerender) {
+  const input = document.getElementById(id);
+  if (!input) return;
+  const box = input.closest('.search');
+  const update = (value, { keepFocus = true, pos = value.length } = {}) => {
+    setValue(value);
+    rerender();
+    const again = document.getElementById(id);
+    if (!again) return;
+    if (keepFocus) { again.focus(); again.setSelectionRange(pos, pos); } else again.blur();
+  };
+  input.oninput = () => update(input.value, { pos: input.selectionStart });
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } }; // keep results, close keyboard
+  box.querySelector('.search-clear').onpointerdown = (e) => { e.preventDefault(); update(''); };
+  box.querySelector('.search-cancel').onpointerdown = (e) => { e.preventDefault(); update('', { keepFocus: false }); };
+}
+
+// Scrolling with a finger closes the keyboard so it doesn't cover the results.
+document.addEventListener('touchmove', () => {
+  const el = document.activeElement;
+  if (el && el.matches('.search input')) el.blur();
+}, { passive: true });
+
 // Sets still missing pieces come first, fewest missing at the top; complete sets last.
 function setsClosestFirst() {
   return sortedSets()
@@ -878,7 +917,7 @@ function renderSets() {
       }
     }
     if (sets.length > 4) {
-      html += `<input class="field" id="setSearch" placeholder="Search sets…" value="${esc(ui.setSearch)}"><p></p>`;
+      html += searchBox('setSearch', ui.setSearch, 'Search sets…');
     }
     const q = ui.setSearch.toLowerCase();
     for (const s of sets) {
@@ -912,8 +951,7 @@ function renderSets() {
   document.querySelectorAll('#setSort button').forEach((b) => {
     b.onclick = () => { ui.setSort = b.dataset.v; savePref('setSort', b.dataset.v); renderSets(); };
   });
-  const ss = $('#setSearch');
-  if (ss) ss.oninput = () => { ui.setSearch = ss.value; renderSetsKeepFocus(); };
+  bindSearch('setSearch', (v) => { ui.setSearch = v; }, renderSets);
   document.querySelectorAll('[data-set]').forEach((el) => {
     el.onclick = (e) => {
       const del = e.target.closest('[data-del]');
@@ -921,13 +959,6 @@ function renderSets() {
       go('#set/' + encodeURIComponent(el.dataset.set));
     };
   });
-}
-
-function renderSetsKeepFocus() {
-  const pos = $('#setSearch').selectionStart;
-  renderSets();
-  const ss = $('#setSearch');
-  ss.focus(); ss.setSelectionRange(pos, pos);
 }
 
 function renderAdd() {
@@ -1203,8 +1234,7 @@ function renderMissing() {
   const totalPieces = all.reduce((n, g) => n + g.total, 0);
   let html = `
     <p class="muted small">${totalPieces} pieces missing across ${new Set(all.flatMap((g) => g.sets.map((s) => s.set.setNum))).size} sets. Sorting a pile? Pick a colour and a type of piece below.</p>
-    <input class="field" id="mSearch" type="search" placeholder="Search by name or part number…" value="${esc(ui.missingSearch)}">
-    <p></p>
+    ${searchBox('mSearch', ui.missingSearch, 'Search by name or part number…')}
     <div class="chips">
       <button class="chip ${!ui.missingColor ? 'active' : ''}" data-color="">All colours</button>
       ${colorList.map((c) => `<button class="chip ${ui.missingColor === c.name ? 'active' : ''}" data-color="${esc(c.name)}">${swatch(c.rgb)}${esc(c.name)} (${c.n})</button>`).join('')}
@@ -1251,13 +1281,7 @@ function renderMissing() {
   html += `</div>`;
   $('#view').innerHTML = html;
 
-  const ms = $('#mSearch');
-  ms.oninput = () => {
-    ui.missingSearch = ms.value;
-    const pos = ms.selectionStart;
-    renderMissing();
-    const n = $('#mSearch'); n.focus(); n.setSelectionRange(pos, pos);
-  };
+  bindSearch('mSearch', (v) => { ui.missingSearch = v; }, renderMissing);
   document.querySelectorAll('[data-color]').forEach((b) => {
     b.onclick = () => { ui.missingColor = b.dataset.color; renderMissing(); };
   });

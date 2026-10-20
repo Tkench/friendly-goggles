@@ -303,3 +303,18 @@ details.advanced[open] summary { margin-bottom: 8px; }
   .hb-last, .hb-gap, .hb-spark { animation: none; }
   .hb-gap, .hb-spark { opacity: 0; }
 }
+
+/* Search box: ✕ to clear, Cancel while typing */
+.search { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.search-field { position: relative; flex: 1; min-width: 0; }
+.search-field .field { padding-right: 44px; -webkit-appearance: none; appearance: none; }
+.search-field input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border-radius: 50%; border: 0;
+  background: var(--chip); color: var(--muted); font-size: 14px; font-weight: 700;
+  display: none; align-items: center; justify-content: center;
+}
+.search.has-text .search-clear { display: flex; }
+.search-cancel { display: none; border: 0; background: none; color: var(--brand); font-weight: 600; padding: 8px 2px; flex: none; }
+.search:focus-within .search-cancel { display: block; }
