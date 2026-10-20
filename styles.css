@@ -270,3 +270,7 @@ body.doc { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 .doc-body h2 { margin-top: 24px; }
 .doc-body ul { padding-left: 22px; }
 .doc-body li { margin: 4px 0; }
+
+/* Collapsible settings section */
+details.advanced summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+details.advanced[open] summary { margin-bottom: 8px; }

@@ -23,13 +23,13 @@
     <p>Last Brick (<a href="https://lastbrick.co.uk">lastbrick.co.uk</a>) is an app for tracking missing pieces in LEGO® sets. Last Brick is responsible for your personal information (the "data controller"). You can contact us at <a href="mailto:hello@lastbrick.co.uk">hello@lastbrick.co.uk</a>.</p>
 
     <h2>Using the app without an account</h2>
-    <p>You can use Last Brick without creating an account. If you do, your sets, ticks, set values and Rebrickable API key are saved <b>only on your device</b>. We never receive them.</p>
+    <p>You can use Last Brick without creating an account. If you do, your sets, ticks and set values are saved <b>only on your device</b>. We never receive them.</p>
 
     <h2>What we collect if you create an account</h2>
     <ul>
       <li><b>Your email address</b> – to log you in and to send account emails (confirming your email, resetting your password).</li>
       <li><b>Your password</b> – stored only in scrambled (hashed) form. Nobody, including us, can read it.</li>
-      <li><b>Your Last Brick data</b> – your sets, which pieces you've ticked, set values you've entered, records of sets you've deleted (so deletions sync between devices) and your Rebrickable API key (so it works on all your devices).</li>
+      <li><b>Your Last Brick data</b> – your sets, which pieces you've ticked, set values you've entered, records of sets you've deleted (so deletions sync between devices) and, only if you've chosen to add one, your own Rebrickable API key.</li>
       <li><b>Technical information</b> – our hosting provider automatically records things like IP address, device or browser type and times of access, to keep the service secure and working.</li>
     </ul>
     <p>We don't collect your name, address, phone number, location or payment details. We don't use advertising, tracking or analytics tools, and we never sell your information.</p>
@@ -44,9 +44,10 @@
     <h2>Other services the app uses</h2>
     <p>Some features connect directly from your device to other services. They receive only what they need:</p>
     <ul>
-      <li><b>Supabase</b> stores account data and handles logins for us. Data is stored in their London (UK) data centre.</li>
+      <li><b>Supabase</b> stores account data and handles logins for us, and runs our parts-list lookup. Data is stored in their London (UK) data centre.</li>
+      <li><b>Our parts-list lookup</b> receives the set numbers you add. It fetches the parts list from Rebrickable using Last Brick's own key and keeps a shared copy, so the next person adding that set gets it straight away. The shared copy isn't linked to you.</li>
       <li><b>GitHub Pages</b> hosts the app's files, and like any website may log your IP address when the app loads.</li>
-      <li><b>Rebrickable</b> receives the set numbers you look up and your Rebrickable API key, and supplies parts lists and piece pictures. <a href="https://rebrickable.com/privacy/" target="_blank" rel="noopener">Rebrickable's privacy policy</a> applies.</li>
+      <li><b>Rebrickable</b> supplies the parts lists (through our lookup) and the piece pictures, which load straight from Rebrickable to your device. If you've added your own Rebrickable key, the app may use it to contact Rebrickable directly when our lookup is unavailable. <a href="https://rebrickable.com/privacy/" target="_blank" rel="noopener">Rebrickable's privacy policy</a> applies.</li>
       <li><b>Brickognize</b> receives the photos you take with <b>Scan</b>, to identify the piece. Photos go straight from your device to Brickognize; we don't receive or keep them. Please only photograph LEGO pieces. <a href="https://brickognize.com" target="_blank" rel="noopener">Brickognize's terms</a> apply.</li>
       <li><b>BrickLink</b> – if you tap a "See prices" link, BrickLink's website opens in your browser and its own privacy policy applies.</li>
     </ul>

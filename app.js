@@ -1,6 +1,7 @@
 /* Last Brick — track missing LEGO pieces across your sets.
  *
- * Parts lists come from the Rebrickable API (free key required).
+ * Parts lists come from Rebrickable, through our "rebrickable" Supabase
+ * helper (supabase/functions/rebrickable) so nobody needs their own key.
  * Photo recognition of a single piece uses the Brickognize API.
  * Everything you tick off is stored on this device (localStorage) and, when
  * logged in, backed up to Supabase and synced between devices.
@@ -395,7 +396,7 @@ async function rbFetch(url) {
   const u = new URL(url);
   if (!u.searchParams.has('key')) u.searchParams.set('key', state.apiKey);
   const res = await fetch(u.toString());
-  if (res.status === 404) throw new Error('Set not found. Check the number on the box or manual (e.g. 6080 or 6080-1).');
+  if (res.status === 404) throw new Error(SET_NOT_FOUND);
   if (res.status === 401 || res.status === 403) throw new Error('Rebrickable rejected the API key. Check it in Settings.');
   if (res.status === 429) throw new Error('Rebrickable says too many requests — wait a minute and try again.');
   if (!res.ok) throw new Error('Rebrickable error ' + res.status);
@@ -415,14 +416,48 @@ async function partCategories() {
   return state.partCats;
 }
 
-async function fetchSet(setNum) {
+const SET_NOT_FOUND = 'Set not found. Check the number on the box or manual (e.g. 6080 or 6080-1).';
+const helperAvailable = () => syncEnabled();
+const needsOwnKey = () => !helperAvailable() && !state.apiKey;
+
+// Gets a parts list from our helper, which caches Rebrickable for everyone.
+// Falls back to the person's own Rebrickable key if the helper isn't set up.
+async function fetchSet(setNum, { refresh = false } = {}) {
+  if (!helperAvailable()) return fetchSetDirect(setNum);
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/rebrickable?set=${encodeURIComponent(setNum)}${refresh ? '&refresh=1' : ''}`,
+      { headers: { apikey: SUPABASE_KEY } });
+  } catch {
+    if (state.apiKey) return fetchSetDirect(setNum);
+    throw new Error('No connection. Check your internet and try again.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) return buildSet(data.info, data.results, data.cats || {});
+  if (data.error === 'not_found') throw new Error(SET_NOT_FOUND);
+  if (res.status === 429) throw new Error('Lots of people are adding sets right now — wait a minute and try again.');
+  if (res.status === 400) throw new Error(SET_NOT_FOUND);
+  if (state.apiKey) return fetchSetDirect(setNum); // helper not set up or broken
+  throw new Error("Parts lists aren't available right now — please try again later.");
+}
+
+async function fetchSetDirect(setNum) {
   const info = await rbFetch(`${RB_API}/sets/${encodeURIComponent(setNum)}/`);
   const cats = await partCategories();
-  const merged = new Map();
+  const results = [];
   let url = `${RB_API}/sets/${encodeURIComponent(setNum)}/parts/?page_size=1000&inc_minifig_parts=1&inc_part_details=1`;
   while (url) {
     const page = await rbFetch(url);
-    for (const r of page.results) {
+    results.push(...page.results);
+    url = page.next;
+  }
+  return buildSet(info, results, cats);
+}
+
+function buildSet(info, results, cats) {
+  const merged = new Map();
+  {
+    for (const r of results) {
       if (r.is_spare) continue; // spares are extras in the bag, not needed to build
       const key = r.part.part_num + '|' + r.color.id;
       const existing = merged.get(key);
@@ -442,7 +477,6 @@ async function fetchSet(setNum) {
         altIds: [...(ext.BrickLink || []), ...(ext.LEGO || [])].map(String),
       });
     }
-    url = page.next;
   }
   const parts = [...merged.values()].sort((a, b) =>
     a.colorName.localeCompare(b.colorName) || a.name.localeCompare(b.name));
@@ -624,7 +658,7 @@ function render() {
   back.classList.toggle('hidden', !(r.name === 'set' || r.name === 'add'));
   $('#delBtn').classList.add('hidden'); // renderSet shows it for the open set
 
-  if (!state.apiKey && r.name !== 'settings') return renderWelcome();
+  if (r.name !== 'settings' && (needsOwnKey() || (!state.welcomed && !Object.keys(state.sets).length))) return renderWelcome();
 
   switch (r.name) {
     case 'set': return renderSet(r.arg);
@@ -646,7 +680,7 @@ function renderWelcome() {
       <p>Add your LEGO sets by number and this app downloads the parts list (the same one printed at the back of the manual) with a picture of every piece.</p>
       <p>Tick off what you have. The <b>Looking for</b> tab shows every missing piece across all your sets, and <b>Scan</b> tells you which set a piece you just found belongs to.</p>
     </div>
-    <div class="card">
+    ${needsOwnKey() ? `<div class="card">
       <h2>One-time setup: free Rebrickable key</h2>
       <ol class="small">
         <li>Create a free account at <a href="https://rebrickable.com/signup/" target="_blank" rel="noopener">rebrickable.com</a>.</li>
@@ -656,18 +690,24 @@ function renderWelcome() {
       <input class="field" id="keyInput" placeholder="Paste API key here" autocomplete="off" autocapitalize="off" spellcheck="false">
       <p></p>
       <button class="btn primary block" id="saveKey">Save and start</button>
-    </div>
+    </div>` : `
+    <button class="btn primary block" id="startBtn">Get started</button>
+    <p></p>`}
     ${syncEnabled() ? `
     <div class="card">
       <h2>Already use Last Brick?</h2>
-      <p class="muted small">Log in to bring your sets (and your key) onto this device.</p>
+      <p class="muted small">Log in to bring your sets onto this device.</p>
       <a class="btn block" href="#settings">☁️ Log in</a>
     </div>` : ''}
     <p class="center small muted"><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Use</a></p>`;
+  if ($('#startBtn')) {
+    $('#startBtn').onclick = () => { state.welcomed = true; save(); go('#add'); render(); };
+    return;
+  }
   $('#saveKey').onclick = () => {
     const k = $('#keyInput').value.trim();
     if (!k) return toast('Paste your key first');
-    state.apiKey = k; save(); go('#sets'); render();
+    state.apiKey = k; state.welcomed = true; save(); go('#sets'); render();
   };
 }
 
@@ -1063,7 +1103,7 @@ function renderSet(setNum) {
   $('#refresh').onclick = async () => {
     try {
       toast('Downloading…');
-      const fresh = await fetchSet(setNum);
+      const fresh = await fetchSet(setNum, { refresh: true });
       const old = new Map(set.parts.map((p) => [p.key, p.have]));
       fresh.parts.forEach((p) => { p.have = Math.min(p.qty, old.get(p.key) || 0); });
       fresh.addedAt = set.addedAt;
@@ -1366,13 +1406,19 @@ function renderSettings() {
   const sets = sortedSets();
   $('#view').innerHTML = `
     ${syncEnabled() ? '<div class="card" id="accountCard"></div>' : ''}
-    <div class="card">
+    ${helperAvailable() ? `<details class="card advanced">
+      <summary>Advanced: your own Rebrickable key</summary>
+      <p class="muted small">Not needed — Last Brick looks up parts lists for you. If you have your own key from <a href="https://rebrickable.com/users/profile/settings/#api" target="_blank" rel="noopener">rebrickable.com</a>, it's only used as a backup if our lookup service is unavailable.</p>
+      <input class="field" id="keyInput" value="${esc(state.apiKey)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste API key here (optional)">
+      <p></p>
+      <button class="btn block" id="saveKey">Save key</button>
+    </details>` : `<div class="card">
       <h2>Rebrickable API key</h2>
       <p class="muted small">Free from <a href="https://rebrickable.com/users/profile/settings/#api" target="_blank" rel="noopener">rebrickable.com → Settings → API</a>.</p>
       <input class="field" id="keyInput" value="${esc(state.apiKey)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste API key here">
       <p></p>
       <button class="btn primary block" id="saveKey">Save key</button>
-    </div>
+    </div>`}
     <div class="card">
       <h2>Backup file</h2>
       <p class="muted small">${session ? 'Your sets are backed up online automatically. You can also keep a copy as a file.' : 'Your ticks are saved on this phone only. Download a backup now and then, or use it to move to a new phone.'} (${sets.length} sets saved.)</p>

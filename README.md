@@ -20,13 +20,15 @@ The app is plain HTML/JavaScript with no build step, so GitHub Pages can host it
    - **iPhone (Safari):** Share button → **Add to Home Screen**.
    - **Android (Chrome):** ⋮ menu → **Add to Home screen** / **Install app**.
 
-## One-time setup: Rebrickable key
+## Parts-list lookup (no key needed by users)
 
-The parts lists come from [Rebrickable](https://rebrickable.com), a free LEGO database.
+Parts lists come from [Rebrickable](https://rebrickable.com). The app gets them through a small Supabase Edge Function, [`supabase/functions/rebrickable`](supabase/functions/rebrickable/index.ts), which holds the Rebrickable key as a secret and caches every parts list in the `set_cache` table so each set is fetched from Rebrickable only once.
 
-1. Make a free account at rebrickable.com.
-2. Go to **Settings → API** and tap **Generate new API key**.
-3. Paste the key into the app when it asks.
+1. Run [`supabase/set_cache.sql`](supabase/set_cache.sql) in the Supabase SQL Editor.
+2. Supabase → **Edge Functions → Deploy a new function → Via Editor**, name it `rebrickable`, paste in `index.ts` and deploy. In the function's settings turn **off** "Enforce JWT verification" (people use the app without logging in).
+3. Supabase → **Edge Functions → Secrets**: add `REBRICKABLE_KEY` with a key from rebrickable.com → Settings → API.
+
+Until the function is deployed, the app falls back to a personal Rebrickable key entered under Settings → Advanced.
 
 ## Login, backup and sync (optional)
 
