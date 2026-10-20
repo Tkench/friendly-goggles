@@ -23,7 +23,7 @@ const SUPABASE_KEY = 'sb_publishable_vWTdvZvwYgGsKhE0m7DbPg_MP_UbMqr';
 /* ---------- State ---------- */
 
 let state = load();
-let ui = { setFilter: 'missing', missingColor: '', missingSearch: '', setSearch: '', missingView: loadPref('missingView', 'list'), missingType: '', setSort: loadPref('setSort', 'closest') };
+let ui = { setFilter: 'missing', missingColor: '', missingSearch: '', setSearch: '', missingView: loadPref('missingView', 'list'), missingType: '', setSort: loadPref('setSort', 'closest'), setView: loadPref('setView', 'grid'), setsShow: loadPref('setsShow', 'all') };
 let lastUndo = null;
 let scanState = null; // { photoUrl, loading, error, items }
 
@@ -893,39 +893,118 @@ function editValue(set) {
   $('#valInput').onkeydown = (e) => { if (e.key === 'Enter') save_(); };
 }
 
+const SET_SORTS = [
+  ['worth', 'Worth finishing'],
+  ['closest', 'Closest to finished'],
+  ['newest', 'Newest added'],
+  ['az', 'Name (A–Z)'],
+  ['year', 'Year (oldest first)'],
+];
+const SET_VIEWS = [['grid', '▦', 'Grid'], ['list', '☰', 'List'], ['compact', '≡', 'Compact']];
+
+function setsInOrder() {
+  switch (ui.setSort) {
+    case 'worth': return setsWorthFirst();
+    case 'closest': return setsClosestFirst();
+    case 'az': return sortedSets().sort((a, b) => a.name.localeCompare(b.name));
+    case 'year': return sortedSets().sort((a, b) => (a.year || 0) - (b.year || 0) || a.name.localeCompare(b.name));
+    default: return sortedSets();
+  }
+}
+
+function setPic(s, cls = '') {
+  return s.img
+    ? `<img class="${cls}" src="${esc(s.img)}" alt="" loading="lazy" onerror="this.outerHTML='<span class=&quot;${cls} no-pic&quot;>🧱</span>'">`
+    : `<span class="${cls} no-pic">🧱</span>`;
+}
+
 function renderSets() {
   setTitle('My sets');
-  const sets = ui.setSort === 'worth' ? setsWorthFirst() : ui.setSort === 'closest' ? setsClosestFirst() : sortedSets();
+  const all = setsInOrder();
   const index = swapIndex();
   let html = `<button class="btn primary block" id="addBtn">＋ Add a set</button><p></p>`;
-  if (!sets.length) {
+  if (!all.length) {
     html += `<div class="empty"><div class="big">🧱</div>No sets yet.<br>Tap <b>Add a set</b> and enter the set number from the manual cover.</div>`;
   } else {
-    if (sets.length > 1) {
-      html += `
-        <div class="seg" id="setSort">
-          <button data-v="worth" class="${ui.setSort === 'worth' ? 'active' : ''}">Worth finishing</button>
-          <button data-v="closest" class="${ui.setSort === 'closest' ? 'active' : ''}">Closest</button>
-          <button data-v="newest" class="${ui.setSort === 'newest' ? 'active' : ''}">Newest</button>
-        </div>`;
-      const valued = sets.filter(hasValue);
-      html += `<p class="muted small">${valued.length
-        ? `Total value: <b>${money(valued.reduce((t, s) => t + s.value, 0))}</b> (${valued.length} of ${sets.length} sets valued)`
-        : 'Tip: add a value to each set (open the set and tap <b>Add value</b>) to see which are worth finishing first.'}</p>`;
-      if (ui.setSort === 'worth' && valued.length) {
-        html += `<p class="muted small">Sets with the most value per missing piece are at the top.</p>`;
-      }
-    }
-    if (sets.length > 4) {
-      html += searchBox('setSearch', ui.setSearch, 'Search sets…');
-    }
-    const q = ui.setSearch.toLowerCase();
-    for (const s of sets) {
-      if (q && !(s.name.toLowerCase().includes(q) || s.setNum.toLowerCase().includes(q))) continue;
+    const info = new Map(all.map((s) => {
       const st = setStats(s);
-      const pct = st.need ? Math.round((st.have / st.need) * 100) : 100;
-      const swapCount = st.missing ? swapsFor(s, index).reduce((t, m) => t + m.qty, 0) : 0;
-      html += `
+      return [s.setNum, {
+        st,
+        pct: st.need ? Math.round((st.have / st.need) * 100) : 100,
+        swaps: st.missing ? swapsFor(s, index).reduce((t, m) => t + m.qty, 0) : 0,
+      }];
+    }));
+    const done = all.filter((s) => !info.get(s.setNum).st.missing).length;
+    if (ui.setsShow === 'done' && !done) ui.setsShow = 'all';
+    if (ui.setsShow === 'todo' && done === all.length) ui.setsShow = 'all';
+
+    html += `
+      <div class="sets-toolbar">
+        <label class="sort-select">
+          <span class="muted small">Sort</span>
+          <select id="setSort" aria-label="Sort sets">
+            ${SET_SORTS.map(([v, label]) => `<option value="${v}" ${ui.setSort === v ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </label>
+        <div class="view-toggle" role="group" aria-label="View">
+          ${SET_VIEWS.map(([v, icon, label]) => `<button data-view="${v}" class="${ui.setView === v ? 'active' : ''}" aria-label="${label} view" title="${label}">${icon}</button>`).join('')}
+        </div>
+      </div>
+      <div class="chips">
+        <button class="chip ${ui.setsShow === 'all' ? 'active' : ''}" data-filter="all">All (${all.length})</button>
+        <button class="chip ${ui.setsShow === 'todo' ? 'active' : ''}" data-filter="todo">In progress (${all.length - done})</button>
+        <button class="chip ${ui.setsShow === 'done' ? 'active' : ''}" data-filter="done">Complete (${done})</button>
+      </div>`;
+    const valued = all.filter(hasValue);
+    html += `<p class="muted small">${valued.length
+      ? `Total value: <b>${money(valued.reduce((t, s) => t + s.value, 0))}</b> (${valued.length} of ${all.length} sets valued)${ui.setSort === 'worth' ? '. Most value per missing piece first.' : ''}`
+      : 'Tip: add a value to each set (open the set and tap <b>Add value</b>) to see which are worth finishing first.'}</p>`;
+    if (all.length > 4) html += searchBox('setSearch', ui.setSearch, 'Search sets…');
+
+    const q = ui.setSearch.toLowerCase();
+    const sets = all.filter((s) => {
+      const { st } = info.get(s.setNum);
+      if (ui.setsShow === 'todo' && !st.missing) return false;
+      if (ui.setsShow === 'done' && st.missing) return false;
+      return !q || s.name.toLowerCase().includes(q) || s.setNum.toLowerCase().includes(q);
+    });
+
+    if (!sets.length) {
+      html += `<div class="empty">${q ? 'No sets match your search.' : ui.setsShow === 'done' ? 'No complete sets yet.' : 'No sets in progress.'}</div>`;
+    } else if (ui.setView === 'grid') {
+      html += `<div class="set-grid">${sets.map((s) => {
+        const { st, pct, swaps } = info.get(s.setNum);
+        return `
+        <div class="set-tile" data-set="${esc(s.setNum)}">
+          <div class="tile-pic">
+            ${setPic(s)}
+            ${st.missing ? `<span class="tile-tag miss">${st.missing} missing</span>` : '<span class="tile-tag ok">Complete ✓</span>'}
+          </div>
+          <div class="tile-body">
+            <div class="tile-name">${esc(s.name)}</div>
+            <div class="muted small">#${esc(shortSetNum(s.setNum))} · ${esc(s.year)}</div>
+            <div class="progress"><div style="width:${pct}%"></div></div>
+            ${hasValue(s) || swaps ? `<div class="tile-meta">${hasValue(s) ? `<b class="value">${money(s.value)}</b>` : ''}${swaps ? `<span class="badge swap">🔁 ${swaps}</span>` : ''}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('')}</div>`;
+    } else if (ui.setView === 'compact') {
+      html += `<div class="card compact-list">${sets.map((s) => {
+        const { st, swaps } = info.get(s.setNum);
+        return `
+        <div class="compact-row" data-set="${esc(s.setNum)}">
+          ${setPic(s, 'compact-pic')}
+          <div class="grow">
+            <div class="compact-name">${esc(s.name)}</div>
+            <div class="muted small">#${esc(shortSetNum(s.setNum))} · ${esc(s.year)}${hasValue(s) ? ` · ${money(s.value)}` : ''}${swaps ? ' · 🔁 ' + swaps : ''}</div>
+          </div>
+          ${st.missing ? `<span class="badge miss">${st.missing} missing</span>` : '<span class="badge ok">Complete ✓</span>'}
+        </div>`;
+      }).join('')}</div>`;
+    } else {
+      for (const s of sets) {
+        const { st, pct, swaps } = info.get(s.setNum);
+        html += `
         <div class="card set-card" data-set="${esc(s.setNum)}">
           ${s.img ? `<img src="${esc(s.img)}" alt="" loading="lazy">` : ''}
           <div class="grow">
@@ -937,19 +1016,25 @@ function renderSets() {
                 ? `<span class="badge miss">${st.missing} missing</span> <span class="muted">${st.have}/${st.need} pieces</span>`
                 : `<span class="badge ok">Complete ✓</span> <span class="muted">${st.need} pieces</span>`}
             </div>
-            ${swapCount ? `<div class="small" style="margin-top:4px"><span class="badge swap">🔁 ${swapCount} can be swapped in</span></div>` : ''}
+            ${swaps ? `<div class="small" style="margin-top:4px"><span class="badge swap">🔁 ${swaps} can be swapped in</span></div>` : ''}
           </div>
           <button class="icon-btn" data-del="${esc(s.setNum)}" aria-label="Delete ${esc(s.name)}">🗑</button>
         </div>`;
+      }
     }
   }
-  if (TIP_URL && sets.length) {
+  if (TIP_URL && all.length) {
     html += `<p class="center small muted" style="margin-top:20px">Enjoying Last Brick? <a href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a></p>`;
   }
   $('#view').innerHTML = html;
   $('#addBtn').onclick = () => go('#add');
-  document.querySelectorAll('#setSort button').forEach((b) => {
-    b.onclick = () => { ui.setSort = b.dataset.v; savePref('setSort', b.dataset.v); renderSets(); };
+  const sortSel = $('#setSort');
+  if (sortSel) sortSel.onchange = () => { ui.setSort = sortSel.value; savePref('setSort', sortSel.value); renderSets(); };
+  document.querySelectorAll('[data-view]').forEach((b) => {
+    b.onclick = () => { ui.setView = b.dataset.view; savePref('setView', b.dataset.view); renderSets(); };
+  });
+  document.querySelectorAll('[data-filter]').forEach((b) => {
+    b.onclick = () => { ui.setsShow = b.dataset.filter; savePref('setsShow', b.dataset.filter); renderSets(); };
   });
   bindSearch('setSearch', (v) => { ui.setSearch = v; }, renderSets);
   document.querySelectorAll('[data-set]').forEach((el) => {
