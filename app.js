@@ -689,28 +689,32 @@ const BRICK_COLOURS = {
 };
 
 function brandArt({ animate = false, cls = '' } = {}) {
-  const brick = (x, y, w, c) => {
+  // Everything sits on a 34px stud grid centred on x = 328, so rows step in
+  // evenly and the last brick's studs line up with the bricks below.
+  const U = 34;
+  const brick = (x, y, units, c) => {
     const [fill, edge] = BRICK_COLOURS[c];
     let studs = '';
-    for (let sx = x + 10; sx + 16 <= x + w - 6; sx += 34) {
-      studs += `<rect x="${sx}" y="${y - 8}" width="17" height="10" rx="2.5" fill="${fill}" stroke="${edge}" stroke-width="2.5"/>`;
+    for (let i = 0; i < units; i++) {
+      studs += `<rect x="${x + i * U + 8.5}" y="${y - 8}" width="17" height="10" rx="2.5" fill="${fill}" stroke="${edge}" stroke-width="2.5"/>`;
     }
-    return `${studs}<rect x="${x}" y="${y}" width="${w}" height="44" rx="3.5" fill="${fill}" stroke="${edge}" stroke-width="2.5"/>`;
+    return `${studs}<rect x="${x + 1}" y="${y}" width="${units * U - 2}" height="44" rx="3.5" fill="${fill}" stroke="${edge}" stroke-width="2.5"/>`;
   };
+  const row = (x, y, parts) => parts.map(([units, c]) => { const b = brick(x, y, units, c); x += units * U; return b; }).join('');
   return `
   <svg class="${cls}" viewBox="128 300 400 208" role="img" aria-label="A stack of bricks with the last red brick ${animate ? 'dropping into place' : 'on top'}">
     <rect x="136" y="491" width="384" height="7" rx="3.5" fill="#000" opacity=".08"/>
-    ${brick(150, 446, 80, 'b')}${brick(230, 446, 105, 'g')}${brick(335, 446, 110, 'r')}${brick(445, 446, 62, 'g')}
-    ${brick(188, 402, 95, 'r')}${brick(283, 402, 107, 'g')}${brick(390, 402, 77, 'y')}
-    ${brick(228, 358, 110, 'y')}${brick(338, 358, 89, 'b')}
+    ${row(141, 446, [[2, 'b'], [3, 'g'], [3, 'r'], [3, 'g']])}
+    ${row(175, 402, [[3, 'r'], [3, 'g'], [3, 'y']])}
+    ${row(209, 358, [[4, 'y'], [3, 'b']])}
     <g class="${animate ? 'lb-drop' : ''}">
       ${animate ? `<g class="lb-speed" stroke="#e8a3a0" stroke-width="3" stroke-linecap="round">
-        <line x1="309" y1="220" x2="309" y2="262"/><line x1="337" y1="196" x2="337" y2="252"/><line x1="365" y1="220" x2="365" y2="262"/>
+        <line x1="300" y1="220" x2="300" y2="262"/><line x1="328" y1="196" x2="328" y2="252"/><line x1="356" y1="220" x2="356" y2="262"/>
       </g>` : ''}
-      ${brick(282, 314, 110, 'r')}
+      ${brick(277, 314, 3, 'r')}
     </g>
     ${animate ? `<g class="lb-impact" fill="none" stroke="#e8a3a0" stroke-width="3" stroke-linecap="round">
-      <path d="M270 330 q-12 6 -18 18"/><path d="M272 312 q-14 0 -24 8"/><path d="M404 330 q12 6 18 18"/><path d="M402 312 q14 0 24 8"/>
+      <path d="M266 330 q-12 6 -18 18"/><path d="M268 312 q-14 0 -24 8"/><path d="M390 330 q12 6 18 18"/><path d="M388 312 q14 0 24 8"/>
     </g>` : ''}
   </svg>`;
 }
