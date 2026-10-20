@@ -742,7 +742,7 @@ function renderWelcome() {
     ${syncEnabled() ? `<p class="center small hero-login">Already have an account? <a href="#settings">Log in</a></p>` : ''}
     <h3 class="steps-title">How it works</h3>
     <ol class="steps" id="steps">
-      <li><span class="step-ico" aria-hidden="true">📦</span><span class="step-n">01 /</span><b>Add your sets</b><span class="step-text">Type the number from the box or manual and the full parts list appears.</span></li>
+      <li><span class="step-ico" aria-hidden="true">📖</span><span class="step-n">01 /</span><b>Add your sets</b><span class="step-text">Type the number from the box or manual and the full parts list appears.</span></li>
       <li><span class="step-ico" aria-hidden="true">✅</span><span class="step-n">02 /</span><b>Tick what you have</b><span class="step-text">See exactly which pieces are still missing, in every colour.</span></li>
       <li><span class="step-ico" aria-hidden="true">📷</span><span class="step-n">03 /</span><b>Find and scan</b><span class="step-text">Spot a piece in the pile? Scan it to see which set needs it.</span></li>
     </ol>

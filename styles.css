@@ -385,3 +385,7 @@ body.welcome .topbar {
 .compact-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .compact-row .badge { white-space: nowrap; flex: none; }
 .compact-row > .grow { flex: 1; min-width: 0; }
+
+/* Sets tab: small colourful brick stack (greyed out like the other icons when not selected) */
+.tab-bricks { width: 28px; height: 24px; display: block; }
+.tabs button .ico { height: 28px; display: flex; align-items: center; justify-content: center; }
