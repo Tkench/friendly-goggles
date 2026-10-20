@@ -1574,83 +1574,104 @@ function showPartSheet(key) {
 
 /* ---------- Scan ---------- */
 
+// Viewfinder art for the Scan page: the red "last brick" inside camera
+// corner brackets, with a scanning line sweeping over it.
+function scanArt(cls = 'scan-art') {
+  const [f, e] = BRICK_COLOURS.r;
+  const studs = [0, 1, 2].map((i) => `<rect x="${72 + i * 20}" y="58" width="12" height="8" rx="2.5" fill="${f}" stroke="${e}" stroke-width="2"/>`).join('');
+  const corner = (d) => `<path d="${d}" fill="none" stroke="var(--brand)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return `
+  <svg class="${cls}" viewBox="0 0 200 140" aria-hidden="true">
+    ${corner('M34 36 V18 H52')}${corner('M148 18 H166 V36')}${corner('M166 104 V122 H148')}${corner('M52 122 H34 V104')}
+    <ellipse cx="100" cy="104" rx="34" ry="3.5" fill="#000" opacity=".08"/>
+    ${studs}
+    <rect x="66" y="64" width="68" height="34" rx="4" fill="${f}" stroke="${e}" stroke-width="2.4"/>
+    <rect x="70" y="68" width="60" height="3.5" rx="1.75" fill="#fff" opacity=".28"/>
+    <rect x="68" y="90" width="64" height="6" rx="3" fill="#000" opacity=".13"/>
+    <g class="scan-line"><rect x="40" y="0" width="120" height="3" rx="1.5" fill="var(--brand)" opacity=".85"/><rect x="40" y="3" width="120" height="14" fill="url(#scanGlow)"/></g>
+    <defs><linearGradient id="scanGlow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d01012" stop-opacity=".22"/><stop offset="1" stop-color="#d01012" stop-opacity="0"/></linearGradient></defs>
+  </svg>`;
+}
+
+const SCAN_TIPS = [
+  ['☝️', 'One piece only', 'Filling most of the photo.'],
+  ['📄', 'Plain background', 'A sheet of white paper is perfect.'],
+  ['💡', 'Good light', 'Daylight is best; avoid strong shadows.'],
+  ['🔍', 'Best side up', 'Show the studs, holes or printed side.'],
+];
+
 function renderScan() {
   setTitle('Scan a piece');
   let html = '';
   if (!scanState) {
     html = `
-      <div class="card scan-hero">
-        <div class="big">📷</div>
-        <h2>Found a piece?</h2>
-        <p class="muted">Take a photo of <b>one piece</b> on a plain background. The app works out what it is and tells you if one of your sets needs it.</p>
-        <p></p>
-        <button class="btn primary block" id="snap">Take photo</button>
-      </div>
-      <div class="card small muted">
-        <b>Tips for a good match</b>
-        <ul style="margin:6px 0 0; padding-left:20px">
-          <li>One piece only, filling most of the photo.</li>
-          <li>Plain, light background (a sheet of paper is great).</li>
-          <li>Good light, no strong shadows.</li>
-          <li>Show the side with the most detail (studs, holes, prints).</li>
-        </ul>
+      <section class="hero scan-start">
+        ${scanArt()}
+        <h2 class="hero-title">Found a piece?<br><span class="accent">Scan it to find its set.</span></h2>
+        <p class="hero-sub">Take a photo of one piece and Last Brick works out what it is, and which of your sets needs it.</p>
+      </section>
+      <button class="btn primary block hero-cta" id="snap">📷 Scan a piece</button>
+      <p class="center small hero-login">Know the part number? <a href="#missing">Search your list</a></p>
+      <h3 class="steps-title">Tips for a good match</h3>
+      <div class="tips">
+        ${SCAN_TIPS.map(([ico, t, d]) => `<div class="tip"><span class="tip-ico" aria-hidden="true">${ico}</span><b>${t}</b><span>${d}</span></div>`).join('')}
       </div>`;
   } else {
-    html += `<div class="card"><img class="scan-photo" src="${esc(scanState.photoUrl)}" alt="Your photo"></div>`;
+    html += `
+      <div class="scan-shot ${scanState.loading ? 'scanning' : ''}">
+        <img src="${esc(scanState.photoUrl)}" alt="Your photo">
+        <span class="vf tl"></span><span class="vf tr"></span><span class="vf br"></span><span class="vf bl"></span>
+        ${scanState.loading ? '<span class="shot-line"></span>' : ''}
+      </div>`;
     if (scanState.loading) {
-      html += `<div class="spinner"></div><p class="center muted">Working out which piece this is…</p>`;
+      html += `<p class="center scan-status">Working out which piece this is…</p>`;
     } else if (scanState.error) {
-      html += `<div class="card"><p style="color:var(--miss)">${esc(scanState.error)}</p>
-        <p class="muted small">You can still search the <a href="#missing">Looking for</a> list by name or part number.</p></div>`;
+      html += `<div class="verdict-card no"><span class="verdict-ico">⚠️</span><div><b>Something went wrong</b><span>${esc(scanState.error)} You can still search the <a href="#missing">Looking for</a> list.</span></div></div>`;
     } else {
       html += renderScanResults(scanState.items);
     }
-    html += `<button class="btn primary block" id="snap">📷 Scan another piece</button>`;
+    if (!scanState.loading) html += `<button class="btn primary block hero-cta scan-again" id="snap">📷 Scan another piece</button>`;
   }
   $('#view').innerHTML = html;
-  $('#snap').onclick = () => $('#cameraInput').click();
+  if ($('#snap')) $('#snap').onclick = () => $('#cameraInput').click();
   bindScanResultButtons();
 }
 
 function renderScanResults(items) {
   if (!items.length) {
-    return `<div class="card"><p class="verdict no">Couldn't recognise that piece.</p>
-      <p class="muted small">Try again closer up, on a plain background — or search the <a href="#missing">Looking for</a> list.</p></div>`;
+    return `<div class="verdict-card no"><span class="verdict-ico">🤔</span><div><b>Couldn't recognise that piece</b><span>Try again closer up, on a plain background — or search the <a href="#missing">Looking for</a> list.</span></div></div>`;
   }
   const top = items.slice(0, 4);
   const results = top.map((it) => ({ it, ...findMissingMatches(it.id) }));
   const anyHit = results.some((r) => r.exact.length || r.similar.length);
   let html = anyHit
-    ? `<p class="verdict yes">✅ Yes — you're looking for this!</p>`
-    : `<p class="verdict no">Not on your missing list.</p>
-       <p class="muted small">Check the best guess below looks right. If it's wrong, try another photo.</p>`;
+    ? `<div class="verdict-card yes"><span class="verdict-ico">✅</span><div><b>Yes — you're looking for this!</b><span>Pick the set that matches your piece's colour and tap Add.</span></div></div>`
+    : `<div class="verdict-card no"><span class="verdict-ico">🔎</span><div><b>Not on your missing list</b><span>Check the best guess looks right. If it doesn't, try another photo.</span></div></div>`;
 
   results.forEach((r, i) => {
     const hits = [...r.exact, ...r.similar];
     if (i > 0 && !hits.length) return; // only show alternative guesses that matter
     const score = Math.round((r.it.score || 0) * 100);
     html += `
-      <div class="card match-card ${hits.length ? 'hit' : ''}">
-        <div class="row">
-          ${r.it.img_url ? `<img src="${esc(r.it.img_url)}" alt="" style="width:72px;height:72px;object-fit:contain;background:#fff;border-radius:8px">` : ''}
+      <div class="match-card ${hits.length ? 'hit' : ''}">
+        <div class="match-head">
+          <div class="match-pic">${r.it.img_url ? `<img src="${esc(r.it.img_url)}" alt="">` : '<span class="no-pic">🧱</span>'}</div>
           <div class="grow">
-            <div class="small muted">${i === 0 ? 'Best guess' : 'Could also be'} · ${score}% sure</div>
-            <div style="font-weight:600">${esc(r.it.name)}</div>
+            <span class="match-chip">${i === 0 ? 'Best guess' : 'Could also be'} · ${score}% sure</span>
+            <div class="match-name">${esc(r.it.name)}</div>
             <div class="small muted">#${esc(r.it.id)}</div>
           </div>
         </div>`;
     if (hits.length) {
-      html += `<p class="small muted" style="margin-top:10px">Needed by — pick the one that matches the colour of your piece:</p>`;
+      html += `<div class="match-sets-title">Needed by</div>`;
       for (const h of hits) {
         const need = h.p.qty - h.p.have;
         html += `
-          <div class="for-set" style="align-items:center">
-            <div class="row grow" style="min-width:0">
-              <div class="thumb">${partImg(h.p)}</div>
-              <div class="grow" style="min-width:0">
-                <div class="sname"><b>${esc(h.set.name)}</b> <span class="muted">#${esc(shortSetNum(h.set.setNum))}</span></div>
-                <div class="small muted">${swatch(h.p.rgb)} ${esc(h.p.colorName)} · need ${need}${r.exact.includes(h) ? '' : ' · similar part'}</div>
-              </div>
+          <div class="match-set">
+            <div class="thumb">${partImg(h.p)}</div>
+            <div class="grow" style="min-width:0">
+              <div class="sname"><b>${esc(h.set.name)}</b> <span class="muted">#${esc(shortSetNum(h.set.setNum))}</span></div>
+              <div class="small muted">${swatch(h.p.rgb)} ${esc(h.p.colorName)} · need ${need}${r.exact.includes(h) ? '' : ' · similar part'}</div>
             </div>
             <button class="btn ok small" data-scan-found="${esc(h.set.setNum)}" data-key="${esc(h.p.key)}">Add</button>
           </div>`;

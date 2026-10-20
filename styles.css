@@ -209,14 +209,6 @@ label.lbl { display: block; font-weight: 600; margin: 10px 0 6px; }
 .for-set .sname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Scan */
-.scan-hero { text-align: center; padding: 24px 16px; }
-.scan-hero .big { font-size: 64px; }
-.scan-photo { width: 100%; max-height: 260px; object-fit: contain; border-radius: 12px; background: #000; }
-.match-card { border: 2px solid var(--line); }
-.match-card.hit { border-color: var(--ok); }
-.verdict { font-size: 18px; font-weight: 700; margin: 4px 0; }
-.verdict.yes { color: var(--ok); }
-.verdict.no { color: var(--muted); }
 .spinner {
   width: 40px; height: 40px; border-radius: 50%; border: 4px solid var(--chip); border-top-color: var(--brand);
   animation: spin 0.9s linear infinite; margin: 20px auto;
@@ -426,3 +418,44 @@ body.welcome .topbar {
 .prow.missing, .crow.missing { border-color: var(--miss); }
 .prow.done, .crow.done { opacity: .7; }
 .prow.missing .prow-pic { border-color: transparent; }
+
+/* Scan page (styled like the welcome page) */
+.scan-art { width: min(240px, 66%); height: auto; display: block; margin: 0 auto 4px; overflow: hidden; }
+.scan-line { animation: scan-sweep 2.4s ease-in-out .3s infinite alternate; }
+@keyframes scan-sweep { from { transform: translateY(24px); } to { transform: translateY(108px); } }
+.scan-start { padding-top: 14px; }
+.tips { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tip { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 2px; }
+.tip-ico { font-size: 26px; margin-bottom: 4px; }
+.tip b { font-size: 15px; }
+.tip span:last-child { color: var(--muted); font-size: 13px; line-height: 1.35; }
+
+.scan-shot { position: relative; border-radius: 18px; overflow: hidden; background: #000; margin-bottom: 14px; box-shadow: var(--shadow); }
+.scan-shot img { display: block; width: 100%; max-height: 300px; object-fit: contain; }
+.vf { position: absolute; width: 28px; height: 28px; border: 4px solid #fff; opacity: .9; }
+.vf.tl { top: 12px; left: 12px; border-right: 0; border-bottom: 0; border-radius: 8px 0 0 0; }
+.vf.tr { top: 12px; right: 12px; border-left: 0; border-bottom: 0; border-radius: 0 8px 0 0; }
+.vf.br { bottom: 12px; right: 12px; border-left: 0; border-top: 0; border-radius: 0 0 8px 0; }
+.vf.bl { bottom: 12px; left: 12px; border-right: 0; border-top: 0; border-radius: 0 0 0 8px; }
+.shot-line { position: absolute; left: 8%; right: 8%; height: 3px; border-radius: 2px; background: var(--brand); box-shadow: 0 0 18px 6px rgba(208, 16, 18, .45); animation: shot-sweep 1.6s ease-in-out infinite alternate; }
+@keyframes shot-sweep { from { top: 10%; } to { top: 88%; } }
+.scan-status { color: var(--muted); font-weight: 600; }
+
+.verdict-card { display: flex; gap: 12px; align-items: flex-start; border-radius: 16px; padding: 14px 16px; margin-bottom: 12px; background: var(--card); box-shadow: var(--shadow); border: 2px solid var(--line); }
+.verdict-card.yes { border-color: var(--ok); background: var(--ok-bg); }
+.verdict-ico { font-size: 26px; line-height: 1; }
+.verdict-card b { display: block; font-size: 17px; margin-bottom: 2px; }
+.verdict-card.yes b { color: var(--ok); }
+.verdict-card span:not(.verdict-ico) { color: var(--muted); font-size: 14px; }
+
+.match-card { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 14px; margin-bottom: 12px; border: 2px solid transparent; }
+.match-card.hit { border-color: var(--ok); }
+.match-head { display: flex; gap: 12px; align-items: center; }
+.match-pic { width: 76px; height: 76px; flex: none; background: #fff; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.match-pic img { width: 90%; height: 90%; object-fit: contain; }
+.match-chip { display: inline-block; font-size: 12px; font-weight: 700; color: var(--brand); background: var(--miss-bg); border-radius: 999px; padding: 2px 9px; margin-bottom: 4px; }
+.match-name { font-weight: 700; line-height: 1.25; }
+.match-sets-title { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 14px 0 4px; }
+.match-set { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+.scan-again { margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .scan-line, .shot-line { animation: none; } }
