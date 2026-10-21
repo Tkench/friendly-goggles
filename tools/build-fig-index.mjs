@@ -9,6 +9,8 @@
 //                  Scanners call plain legs 970c00 whatever the colour, but Rebrickable
 //                  numbers legs by leg colour (970c28 = blue legs) with the hips colour as
 //                  the piece colour, so legs get their own list, found by colour.
+//   figs.json      [[fig_num, name, image], …] every minifigure, so a whole-figure scan
+//                  (which gives BrickLink's name) can be matched to Rebrickable's names
 //   meta.json      when it was built and how big it is
 // Parts are spread over 256 files by a hash of the part number (see shardOf,
 // which app.js repeats), so a scan downloads only one small file.
@@ -121,6 +123,7 @@ for (let i = 0; i < 256; i++) {
   fs.writeFileSync(path.join(OUT, 'p', key + '.json'), JSON.stringify(shards.get(key) || {}));
 }
 fs.writeFileSync(path.join(OUT, 'colors.json'), JSON.stringify(colours));
+fs.writeFileSync(path.join(OUT, 'figs.json'), JSON.stringify([...latest.keys()].sort().map((f) => figs.get(f).slice(0, 3))));
 
 const legs = {};
 for (const [num, p] of index) {

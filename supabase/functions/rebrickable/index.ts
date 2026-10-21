@@ -174,14 +174,39 @@ async function searchFigs(q: string) {
   return { results: page.results.map(trimFig) };
 }
 
-// Figure scans give BrickLink ids and names, so try the id, then the name, then a shorter name.
+// Figure scans give BrickLink ids and names. Collectable series figures are
+// best found through their packet, which Rebrickable keeps under the official
+// name (e.g. "Awesome Remix Emmet"); otherwise try the id, the name, then a
+// shorter name.
+// deno-lint-ignore no-explicit-any
+async function figsFromPackets(name: string): Promise<any[]> {
+  const page = await rebrickable(`/sets/?page_size=8&search=${encodeURIComponent(name)}`);
+  const out = [];
+  // deno-lint-ignore no-explicit-any
+  for (const set of page.results.filter((x: any) => (x.num_parts ?? 0) <= 40).slice(0, 4)) {
+    const figs = await allPages(`/sets/${encodeURIComponent(set.set_num)}/minifigs/?page_size=20`, 20);
+    if (figs.length === 1) out.push({ ...trimFig({ ...figs[0], name: figs[0].set_name ?? figs[0].name }), exact: true });
+  }
+  return out;
+}
+
 async function findFigs(id: string, name: string) {
+  const results = new Map();
+  const add = (list: { set_num: string }[]) => list.forEach((f) => results.has(f.set_num) || results.set(f.set_num, f));
+  if (name.length > 2) {
+    try {
+      add(await cached('figpack:' + name.toLowerCase(), KEEP_FOR, async () => ({ results: await figsFromPackets(name) })).then((d) => (d as { results: { set_num: string }[] }).results));
+    } catch (e) {
+      console.error('packet search failed', e);
+    }
+  }
   const tries = [id, name, name.split(/ - |,|\(/)[0]].map((t) => t.trim()).filter((t) => t.length > 2);
   for (const t of [...new Set(tries)]) {
-    const found = await cached('figsearch:' + t.toLowerCase(), KEEP_FOR, () => searchFigs(t)) as { results: unknown[] };
-    if (found.results.length) return found;
+    if (results.size >= 10) break;
+    const found = await cached('figsearch:' + t.toLowerCase(), KEEP_FOR, () => searchFigs(t)) as { results: { set_num: string }[] };
+    add(found.results);
   }
-  return { results: [] };
+  return { results: [...results.values()].slice(0, 30) };
 }
 
 // Scans give BrickLink part numbers, which are sometimes different on Rebrickable.
