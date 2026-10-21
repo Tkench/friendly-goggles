@@ -22,7 +22,7 @@ The app is plain HTML/JavaScript with no build step, so GitHub Pages can host it
 
 ## Parts-list lookup (no key needed by users)
 
-Parts lists come from [Rebrickable](https://rebrickable.com). The app gets them through a small Supabase Edge Function, [`supabase/functions/rebrickable`](supabase/functions/rebrickable/index.ts), which holds the Rebrickable key as a secret and caches every parts list in the `set_cache` table so each set is fetched from Rebrickable only once.
+Parts lists come from [Rebrickable](https://rebrickable.com). The app gets them through a small Supabase Edge Function, [`supabase/functions/rebrickable`](supabase/functions/rebrickable/index.ts), which holds the Rebrickable key as a secret and caches every parts list in the `set_cache` table so each set is fetched from Rebrickable only once. The same helper also looks up minifigures (search, the pieces in a figure, the sets it came in, and which figures use a scanned piece).
 
 1. Run [`supabase/set_cache.sql`](supabase/set_cache.sql) in the Supabase SQL Editor.
 2. Supabase → **Edge Functions → Deploy a new function → Via Editor**, name it `rebrickable`, paste in `index.ts` and deploy. In the function's settings turn **off** "Enforce JWT verification" (people use the app without logging in).

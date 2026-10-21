@@ -12,6 +12,7 @@
 const STORE_KEY = 'brickfinder.v1';
 const RB_API = 'https://rebrickable.com/api/v3/lego';
 const BRICKOGNIZE_API = 'https://api.brickognize.com/predict/parts/';
+const BRICKOGNIZE_FIGS = 'https://api.brickognize.com/predict/figs/';
 // Tip jar link (Ko-fi / Buy Me a Coffee). The Support button stays hidden while this is empty.
 const TIP_URL = '';
 // Supabase project for login, backup and sync (see supabase/setup.sql). The
@@ -23,9 +24,10 @@ const SUPABASE_KEY = 'sb_publishable_vWTdvZvwYgGsKhE0m7DbPg_MP_UbMqr';
 /* ---------- State ---------- */
 
 let state = load();
-let ui = { setFilter: 'missing', missingColor: '', setSearch: '', missingView: loadPref('missingView2', 'list'), missingSort: loadPref('missingSort', 'colour'), missingType: '', setSort: loadPref('setSort', 'closest'), setView: loadPref('setView', 'grid'), setsShow: loadPref('setsShow', 'all'), partView: loadPref('partView', 'grid'), partSort: loadPref('partSort', 'colour'), partColor: '', partType: '', partSetNum: '' };
+let ui = { setFilter: 'missing', missingColor: '', setSearch: '', missingView: loadPref('missingView2', 'list'), missingSort: loadPref('missingSort', 'colour'), missingType: '', setSort: loadPref('setSort', 'closest'), setView: loadPref('setView', 'grid'), setsShow: loadPref('setsShow', 'all'), collection: loadPref('collection', 'sets'), partView: loadPref('partView', 'grid'), partSort: loadPref('partSort', 'colour'), partColor: '', partType: '', partSetNum: '' };
 let lastUndo = null;
 let scanState = null; // { photoUrl, loading, error, items }
+let figAdd = { q: '' }; // the Add a minifigure page (search and scans)
 
 function load() {
   let s = { apiKey: '', sets: {} };
@@ -340,6 +342,12 @@ function shortSetNum(setNum) {
   return setNum.replace(/-1$/, '');
 }
 
+// Minifigures are kept alongside sets (same pieces, ticks, sync), marked kind 'fig'.
+const isFig = (s) => s.kind === 'fig' || /^fig-/i.test(s.setNum);
+const noun = (s, n = 1) => (isFig(s) ? (n === 1 ? 'minifigure' : 'minifigures') : (n === 1 ? 'set' : 'sets'));
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const setSub = (s) => `#${shortSetNum(s.setNum)}${s.year ? ' · ' + s.year : ''}`;
+
 function setStats(set) {
   let need = 0, have = 0, kinds = 0, kindsMissing = 0;
   for (const p of set.parts) {
@@ -490,6 +498,38 @@ function buildSet(info, results, cats) {
   };
 }
 
+/* ---------- Minifigures (through our helper) ---------- */
+
+async function helperGet(query) {
+  if (!helperAvailable()) throw new Error("Minifigure lookups aren't available right now — please try again later.");
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/rebrickable?${query}`, { headers: { apikey: SUPABASE_KEY } });
+  } catch {
+    throw new Error('No connection. Check your internet and try again.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) return data;
+  const err = new Error(res.status === 404 ? 'Not found on Rebrickable.'
+    : res.status === 429 ? 'Lots of people are using Last Brick right now — wait a minute and try again.'
+      : "Minifigure lookups aren't available right now — please try again later.");
+  err.status = res.status;
+  throw err;
+}
+
+const figCache = new Map(); // figures looked at on the Add page, so adding doesn't download again
+
+async function fetchFig(figNum, { refresh = false } = {}) {
+  if (!refresh && figCache.has(figNum)) return structuredClone(figCache.get(figNum));
+  const data = await helperGet(`fig=${encodeURIComponent(figNum)}${refresh ? '&refresh=1' : ''}`);
+  const fig = buildSet({ ...data.info, year: '' }, data.results || [], data.cats || {});
+  fig.kind = 'fig';
+  fig.inSets = (data.sets || []).map((x) => ({ setNum: x.set_num, name: x.name, year: x.year, img: x.set_img_url || '' }))
+    .sort((a, b) => (a.year || 0) - (b.year || 0));
+  figCache.set(figNum, fig);
+  return structuredClone(fig);
+}
+
 /* ---------- Brickognize ---------- */
 
 async function shrinkImage(file, maxSide = 1024) {
@@ -512,11 +552,11 @@ async function shrinkImage(file, maxSide = 1024) {
   }
 }
 
-async function identifyPiece(file) {
+async function identifyPiece(file, api = BRICKOGNIZE_API) {
   const blob = await shrinkImage(file);
   const form = new FormData();
   form.append('query_image', blob, 'piece.jpg');
-  const res = await fetch(BRICKOGNIZE_API, { method: 'POST', body: form });
+  const res = await fetch(api, { method: 'POST', body: form });
   if (!res.ok) throw new Error('Recognition service error ' + res.status);
   const data = await res.json();
   return data.items || [];
@@ -569,8 +609,8 @@ async function deleteSet(setNum) {
   if (!set) return false;
   const ok = await askConfirm({
     title: `Delete ${set.name} (#${shortSetNum(setNum)})?`,
-    text: "Its parts list and your ticks will be removed from this phone. You can add the set again later, but you'd need to re-tick the pieces.",
-    ok: 'Delete set',
+    text: `Its parts list and your ticks will be removed from this phone. You can add the ${noun(set)} again later, but you'd need to re-tick the pieces.`,
+    ok: `Delete ${noun(set)}`,
     danger: true,
   });
   if (!ok || !state.sets[setNum]) return false;
@@ -652,10 +692,11 @@ window.addEventListener('hashchange', () => { closeSheet(); render(); window.scr
 
 function render() {
   const r = route();
-  const tab = r.name === 'set' || r.name === 'add' ? 'sets' : r.name;
+  const sub = r.name === 'set' || r.name === 'add' || r.name === 'addfig';
+  const tab = sub ? 'sets' : r.name;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   const back = $('#backBtn');
-  back.classList.toggle('hidden', !(r.name === 'set' || r.name === 'add'));
+  back.classList.toggle('hidden', !sub);
   $('#delBtn').classList.add('hidden'); // renderSet shows it for the open set
 
   if (r.name !== 'settings' && (needsOwnKey() || (!state.welcomed && !Object.keys(state.sets).length))) return renderWelcome();
@@ -663,6 +704,7 @@ function render() {
   switch (r.name) {
     case 'set': return renderSet(r.arg);
     case 'add': return renderAdd();
+    case 'addfig': return renderAddFig();
     case 'missing': return renderMissing();
     case 'scan': return renderScan();
     case 'settings': return renderSettings();
@@ -830,8 +872,10 @@ function money(v) {
   return '£' + (Number.isInteger(v) ? v : v.toFixed(2));
 }
 
-function priceGuideUrl(setNum) {
-  return `https://www.bricklink.com/catalogPG.asp?S=${encodeURIComponent(setNum)}`;
+function priceGuideUrl(set) {
+  // BrickLink numbers minifigures differently, so search by name instead.
+  if (isFig(set)) return `https://www.bricklink.com/v2/search.page?q=${encodeURIComponent(set.name)}#T=M`;
+  return `https://www.bricklink.com/catalogPG.asp?S=${encodeURIComponent(set.setNum)}`;
 }
 
 // Best value for the work left: valued sets ranked by £ per missing piece,
@@ -907,8 +951,8 @@ function moveBetweenSets(target, move) {
 function editValue(set) {
   openSheet(`
     <h2>Value of ${esc(set.name)}</h2>
-    <p class="muted small">Open the price guide, look at <b>Last 6 months sales → Used → Avg Price</b>, then type it in below.</p>
-    <a class="btn block" href="${priceGuideUrl(set.setNum)}" target="_blank" rel="noopener">💷 See prices on BrickLink ↗</a>
+    <p class="muted small">${isFig(set) ? 'Find the figure on BrickLink and open its <b>Price Guide</b> tab' : 'Open the price guide'}, look at <b>Last 6 months sales → Used → Avg Price</b>, then type it in below.</p>
+    <a class="btn block" href="${priceGuideUrl(set)}" target="_blank" rel="noopener">💷 See prices on BrickLink ↗</a>
     <label class="lbl" for="valInput">Value (£)</label>
     <input class="field" id="valInput" type="number" inputmode="decimal" min="0" step="0.01" placeholder="e.g. 45" value="${hasValue(set) ? set.value : ''}">
     <p></p>
@@ -947,18 +991,30 @@ function setsInOrder() {
 }
 
 function setPic(s, cls = '') {
+  const icon = isFig(s) ? '🙂' : '🧱';
   return s.img
-    ? `<img class="${cls}" src="${esc(s.img)}" alt="" loading="lazy" onerror="this.outerHTML='<span class=&quot;${cls} no-pic&quot;>🧱</span>'">`
-    : `<span class="${cls} no-pic">🧱</span>`;
+    ? `<img class="${cls}" src="${esc(s.img)}" alt="" loading="lazy" onerror="this.outerHTML='<span class=&quot;${cls} no-pic&quot;>${icon}</span>'">`
+    : `<span class="${cls} no-pic">${icon}</span>`;
 }
 
 function renderSets() {
-  setTitle('My sets');
-  const all = setsInOrder();
+  const figs = ui.collection === 'figs';
+  setTitle(figs ? 'My minifigures' : 'My sets');
+  const everything = setsInOrder();
+  const all = everything.filter((s) => isFig(s) === figs);
+  const figCount = everything.filter(isFig).length;
+  const word = figs ? ['minifigure', 'minifigures'] : ['set', 'sets'];
   const index = swapIndex();
-  let html = `<button class="btn primary block" id="addBtn">＋ Add a set</button><p></p>`;
+  let html = `
+    <div class="seg collection-switch" id="collection">
+      <button data-c="sets" class="${figs ? '' : 'active'}">🧱 Sets <em>${everything.length - figCount}</em></button>
+      <button data-c="figs" class="${figs ? 'active' : ''}">${figIcon()} Minifigures <em>${figCount}</em></button>
+    </div>
+    <button class="btn primary block" id="addBtn">＋ Add a ${word[0]}</button><p></p>`;
   if (!all.length) {
-    html += `<div class="empty">${emptyBrick()}<b>No sets yet</b><br>Tap <b>Add a set</b> and enter the set number from the manual cover.</div>`;
+    html += figs
+      ? `<div class="empty">${emptyFig()}<b>No minifigures yet</b><br>Tap <b>Add a minifigure</b> to search by name, scan a whole figure, or scan one of its pieces (like the legs) to work out which figure it's from.</div>`
+      : `<div class="empty">${emptyBrick()}<b>No sets yet</b><br>Tap <b>Add a set</b> and enter the set number from the manual cover.</div>`;
   } else {
     const info = new Map(all.map((s) => {
       const st = setStats(s);
@@ -976,7 +1032,7 @@ function renderSets() {
       <div class="sets-toolbar">
         <label class="sort-select">
           <span class="muted small">Sort</span>
-          <select id="setSort" aria-label="Sort sets">
+          <select id="setSort" aria-label="Sort ${word[1]}">
             ${SET_SORTS.map(([v, label]) => `<option value="${v}" ${ui.setSort === v ? 'selected' : ''}>${label}</option>`).join('')}
           </select>
         </label>
@@ -991,9 +1047,9 @@ function renderSets() {
       </div>`;
     const valued = all.filter(hasValue);
     html += `<p class="muted small">${valued.length
-      ? `Total value: <b>${money(valued.reduce((t, s) => t + s.value, 0))}</b> (${valued.length} of ${all.length} sets valued)${ui.setSort === 'worth' ? '. Most value per missing piece first.' : ''}`
-      : 'Tip: add a value to each set (open the set and tap <b>Add value</b>) to see which are worth finishing first.'}</p>`;
-    if (all.length > 4) html += searchBox('setSearch', ui.setSearch, 'Search sets…');
+      ? `Total value: <b>${money(valued.reduce((t, s) => t + s.value, 0))}</b> (${valued.length} of ${all.length} ${word[1]} valued)${ui.setSort === 'worth' ? '. Most value per missing piece first.' : ''}`
+      : `Tip: add a value to each ${word[0]} (open it and tap <b>Add value</b>) to see which are worth finishing first.`}</p>`;
+    if (all.length > 4) html += searchBox('setSearch', ui.setSearch, `Search ${word[1]}…`);
 
     const q = ui.setSearch.toLowerCase();
     const sets = all.filter((s) => {
@@ -1004,7 +1060,7 @@ function renderSets() {
     });
 
     if (!sets.length) {
-      html += `<div class="empty">${q ? 'No sets match your search.' : ui.setsShow === 'done' ? 'No complete sets yet.' : 'No sets in progress.'}</div>`;
+      html += `<div class="empty">${q ? `No ${word[1]} match your search.` : ui.setsShow === 'done' ? `No complete ${word[1]} yet.` : `No ${word[1]} in progress.`}</div>`;
     } else if (ui.setView === 'grid') {
       html += `<div class="set-grid">${sets.map((s) => {
         const { st, pct, swaps } = info.get(s.setNum);
@@ -1016,7 +1072,7 @@ function renderSets() {
           </div>
           <div class="tile-body">
             <div class="tile-name">${esc(s.name)}</div>
-            <div class="muted small">#${esc(shortSetNum(s.setNum))} · ${esc(s.year)}</div>
+            <div class="muted small">${esc(setSub(s))}</div>
             <div class="progress"><div style="width:${pct}%"></div></div>
             ${hasValue(s) || swaps ? `<div class="tile-meta">${hasValue(s) ? `<b class="value">${money(s.value)}</b>` : ''}${swaps ? `<span class="badge swap">🔁 ${swaps}</span>` : ''}</div>` : ''}
           </div>
@@ -1030,7 +1086,7 @@ function renderSets() {
           ${setPic(s, 'compact-pic')}
           <div class="grow">
             <div class="compact-name">${esc(s.name)}</div>
-            <div class="muted small">#${esc(shortSetNum(s.setNum))} · ${esc(s.year)}${hasValue(s) ? ` · ${money(s.value)}` : ''}${swaps ? ' · 🔁 ' + swaps : ''}</div>
+            <div class="muted small">${esc(setSub(s))}${hasValue(s) ? ` · ${money(s.value)}` : ''}${swaps ? ' · 🔁 ' + swaps : ''}</div>
           </div>
           ${st.missing ? `<span class="badge miss">${st.missing} missing</span>` : '<span class="badge ok">Complete ✓</span>'}
         </div>`;
@@ -1043,7 +1099,7 @@ function renderSets() {
           ${s.img ? `<img src="${esc(s.img)}" alt="" loading="lazy">` : ''}
           <div class="grow">
             <div class="name">${esc(s.name)}</div>
-            <div class="muted small">#${esc(shortSetNum(s.setNum))} · ${esc(s.year)}${hasValue(s) ? ` · <b class="value">${money(s.value)}</b>` : ''}</div>
+            <div class="muted small">${esc(setSub(s))}${hasValue(s) ? ` · <b class="value">${money(s.value)}</b>` : ''}</div>
             <div class="progress"><div style="width:${pct}%"></div></div>
             <div class="small" style="margin-top:4px">
               ${st.missing
@@ -1061,7 +1117,10 @@ function renderSets() {
     html += `<p class="center small muted" style="margin-top:20px">Enjoying Last Brick? <a href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a></p>`;
   }
   $('#view').innerHTML = html;
-  $('#addBtn').onclick = () => go('#add');
+  $('#addBtn').onclick = () => go(figs ? '#addfig' : '#add');
+  document.querySelectorAll('#collection button').forEach((b) => {
+    b.onclick = () => { ui.collection = b.dataset.c; ui.setSearch = ''; savePref('collection', b.dataset.c); renderSets(); };
+  });
   const sortSel = $('#setSort');
   if (sortSel) sortSel.onchange = () => { ui.setSort = sortSel.value; savePref('setSort', sortSel.value); renderSets(); };
   document.querySelectorAll('[data-view]').forEach((b) => {
@@ -1136,6 +1195,321 @@ function renderAdd() {
   $('#fetchBtn').onclick = submit;
   input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
 }
+
+/* ---------- Minifigures: sets they came in, and the Add page ---------- */
+
+function figSetRows(fig, limit, withButtons) {
+  const list = fig.inSets || [];
+  if (!list.length) {
+    return `<p class="muted small">Rebrickable doesn't list this figure in any set, so it was probably sold on its own (for example as a promotion, magazine gift or keyring).</p>`;
+  }
+  let html = list.slice(0, limit).map((x) => `
+    <div class="for-set">
+      <div class="row grow" style="min-width:0">
+        <div class="thumb">${x.img ? `<img src="${esc(x.img)}" alt="" loading="lazy">` : '🧱'}</div>
+        <div class="grow" style="min-width:0">
+          <div class="sname"><b>${esc(x.name)}</b></div>
+          <div class="small muted">${esc(setSub(x))}</div>
+        </div>
+      </div>
+      ${!withButtons ? '' : state.sets[x.setNum]
+        ? `<button class="btn small" data-open-set="${esc(x.setNum)}">Open</button>`
+        : `<button class="btn ok small" data-add-set="${esc(x.setNum)}">Add set</button>`}
+    </div>`).join('');
+  if (list.length > limit) html += `<button class="link-btn" data-more-sets>Show all ${list.length} sets</button>`;
+  return html;
+}
+
+function renderFigSets(fig) {
+  const n = (fig.inSets || []).length;
+  return `
+    <div class="card fig-sets">
+      <h2>${n ? `🧱 Comes in ${plural(n, 'set', 'sets')}` : '🧱 Not part of a set'}</h2>
+      ${figSetRows(fig, ui.figSetsAll === fig.setNum ? 999 : 3, true)}
+    </div>`;
+}
+
+function bindFigSets(fig) {
+  if (!isFig(fig)) return;
+  document.querySelectorAll('[data-open-set]').forEach((b) => { b.onclick = () => go('#set/' + encodeURIComponent(b.dataset.openSet)); });
+  const more = $('[data-more-sets]');
+  if (more) more.onclick = () => { ui.figSetsAll = fig.setNum; renderSet(fig.setNum); };
+  document.querySelectorAll('[data-add-set]').forEach((b) => {
+    b.onclick = async () => {
+      b.disabled = true;
+      b.textContent = 'Adding…';
+      try {
+        const set = await fetchSet(b.dataset.addSet);
+        state.sets[set.setNum] = set;
+        save();
+        toast(`Added ${set.name} to your sets`);
+      } catch (e) {
+        toast(e.message);
+      }
+      if (route().arg === fig.setNum) { const y = window.scrollY; renderSet(fig.setNum); window.scrollTo(0, y); }
+    };
+  });
+}
+
+function figTiles(list) {
+  return `<div class="set-grid fig-grid">${list.map((f) => `
+    <div class="set-tile" data-fig="${esc(f.set_num)}">
+      <div class="tile-pic">
+        ${f.set_img_url ? `<img src="${esc(f.set_img_url)}" alt="" loading="lazy">` : `<span class="no-pic">🙂</span>`}
+        ${state.sets[f.set_num] ? '<span class="tile-tag ok">Yours ✓</span>' : ''}
+      </div>
+      <div class="tile-body">
+        <div class="tile-name">${esc(f.name)}</div>
+        <div class="muted small">#${esc(f.set_num)}${f.num_parts ? ` · ${plural(f.num_parts, 'piece', 'pieces')}` : ''}</div>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+const FIG_SHOW_MAX = 40;
+
+function renderFigOut() {
+  const a = figAdd;
+  let h = '';
+  if (a.photoUrl) {
+    h += `
+      <div class="scan-shot small-shot ${a.loading ? 'scanning' : ''}">
+        <img src="${esc(a.photoUrl)}" alt="Your photo">
+        <span class="vf tl"></span><span class="vf tr"></span><span class="vf br"></span><span class="vf bl"></span>
+        ${a.loading ? '<span class="shot-line"></span>' : ''}
+      </div>`;
+  }
+  if (a.loading) return h + `<p class="center scan-status">${esc(a.loading)}</p>`;
+  if (a.error) {
+    return h + `<div class="verdict-card no"><span class="verdict-ico">${a.errorIcon || '⚠️'}</span><div><b>${esc(a.errorTitle || 'Something went wrong')}</b><span>${esc(a.error)}</span></div></div>`;
+  }
+  if (a.step === 'guesses') {
+    const what = a.scanKind === 'fig' ? 'figure' : 'piece';
+    h += `<h3 class="steps-title">Which ${what} is it?</h3><p class="muted small">Tap the one that looks like yours.</p>`;
+    h += a.guesses.map((g, i) => `
+      <button class="match-card guess" data-guess="${i}">
+        <div class="match-head">
+          <div class="match-pic">${g.img_url ? `<img src="${esc(g.img_url)}" alt="">` : '<span class="no-pic">🧱</span>'}</div>
+          <div class="grow">
+            <span class="match-chip">${i === 0 ? 'Best guess' : 'Could also be'} · ${Math.round((g.score || 0) * 100)}% sure</span>
+            <div class="match-name">${esc(g.name)}</div>
+            <div class="small muted">#${esc(g.id)}</div>
+          </div>
+          <span class="chev">›</span>
+        </div>
+      </button>`).join('');
+  }
+  if (a.step === 'colours') {
+    h += `<div class="picked-part"><div class="thumb">${a.part.img ? `<img src="${esc(a.part.img)}" alt="">` : '🧱'}</div><div><b>${esc(a.part.name)}</b><div class="small muted">#${esc(a.part.num)}</div></div></div>`;
+    h += `<h3 class="steps-title">What colour is yours?</h3><p class="muted small">The scanner works out the shape, but not always the colour.</p>`;
+    h += `<div class="colour-pick">${a.colours.map((c) => `
+      <button class="colour-opt" data-colour="${esc(c.id)}">
+        ${c.img ? `<img src="${esc(c.img)}" alt="" loading="lazy">` : '<span class="no-pic">🧱</span>'}
+        <span>${swatch(c.rgb)} ${esc(c.name)}</span>
+      </button>`).join('')}</div>`;
+    h += `<button class="link-btn" data-back="guesses">‹ Pick a different piece</button>`;
+  }
+  if (a.step === 'results') {
+    const q = (a.filter || '').toLowerCase();
+    const list = q ? a.results.filter((f) => f.name.toLowerCase().includes(q) || f.set_num.includes(q)) : a.results;
+    h += `<h3 class="steps-title">${esc(a.resultsTitle)}</h3>`;
+    if (a.resultsHint) h += `<div class="verdict-card ${a.results.length > 12 ? 'no' : 'yes'}"><span class="verdict-ico">${a.results.length > 12 ? '💡' : '✅'}</span><div><b>${esc(a.resultsHint[0])}</b><span>${esc(a.resultsHint[1])}</span></div></div>`;
+    if (a.results.length > 12) h += `<input class="field" id="figFilter" type="search" placeholder="Narrow down by name, e.g. knight" value="${esc(a.filter || '')}" autocomplete="off">`;
+    h += list.length ? figTiles(list.slice(0, FIG_SHOW_MAX)) : `<div class="empty">No figures match “${esc(a.filter)}”.</div>`;
+    if (list.length > FIG_SHOW_MAX) h += `<p class="center muted small">Showing ${FIG_SHOW_MAX} of ${list.length}. Type above to narrow it down.</p>`;
+    if (a.back) h += `<button class="link-btn" data-back="${esc(a.back)}">‹ ${a.back === 'colours' ? 'Pick a different colour' : 'Pick a different match'}</button>`;
+  }
+  return h;
+}
+
+function renderAddFig() {
+  setTitle('Add a minifigure');
+  $('#view').innerHTML = `
+    <section class="hero fig-hero">
+      ${emptyFig('fig-art')}
+      <h2 class="hero-title">Got a minifigure?<br><span class="accent">Find out who it is.</span></h2>
+      <p class="hero-sub">Search by name, scan the whole figure, or scan just one piece (like the legs) to see which figures it could belong to.</p>
+    </section>
+    <div class="card">
+      <label class="lbl" for="figQ">Search by name or number</label>
+      <div class="fig-search">
+        <input class="field" id="figQ" type="search" placeholder="e.g. Black Falcon, Batman" value="${esc(figAdd.q)}" autocomplete="off" enterkeyhint="search">
+        <button class="btn primary" id="figGo">Search</button>
+      </div>
+    </div>
+    <div class="scan-opts">
+      <button class="scan-opt" id="scanFig"><span class="opt-ico">${figIcon()}</span><b>Scan whole figure</b><span>Stand it up on plain paper</span></button>
+      <button class="scan-opt" id="scanPiece"><span class="opt-ico">📷</span><b>Scan one piece</b><span>Legs, torso, head…</span></button>
+    </div>
+    <p class="muted small center">Tip: a <b>printed torso</b> narrows it down best. Plain legs and smiley heads are used in hundreds of figures.</p>
+    <div id="figOut">${renderFigOut()}</div>`;
+  bindAddFig();
+}
+
+function refreshFigOut({ scroll = false } = {}) {
+  if (route().name !== 'addfig') return;
+  $('#figOut').innerHTML = renderFigOut();
+  bindAddFig();
+  if (scroll) $('#figOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function figStep(loadingText, work) {
+  Object.assign(figAdd, { loading: loadingText, error: '', errorTitle: '', errorIcon: '' });
+  refreshFigOut({ scroll: true });
+  try {
+    await work();
+  } catch (e) {
+    figAdd.error = e instanceof TypeError ? 'No connection. Check your internet and try again.' : e.message;
+  }
+  figAdd.loading = '';
+  refreshFigOut();
+}
+
+function noFigs(title, text) {
+  Object.assign(figAdd, { error: text, errorTitle: title, errorIcon: '🤔' });
+}
+
+function bindAddFig() {
+  const input = $('#figQ');
+  const search = () => {
+    const q = input.value.trim();
+    if (q.length < 2) return toast('Type at least 2 letters');
+    input.blur();
+    if (figAdd.photoUrl) URL.revokeObjectURL(figAdd.photoUrl);
+    Object.assign(figAdd, { q, photoUrl: '', step: '', filter: '', scanned: null, back: '' });
+    figStep('Searching…', async () => {
+      const data = await helperGet('figsearch=' + encodeURIComponent(q));
+      if (!data.results.length) return noFigs('No minifigures found', `Nothing matches “${q}”. Try a shorter name, or scan the figure instead.`);
+      Object.assign(figAdd, { step: 'results', results: data.results, resultsTitle: `${plural(data.results.length, 'minifigure', 'minifigures')} match “${q}”`, resultsHint: null });
+    });
+  };
+  if (input) { $('#figGo').onclick = search; input.onkeydown = (e) => { if (e.key === 'Enter') search(); }; }
+  if ($('#scanFig')) $('#scanFig').onclick = () => { figAdd.scanKind = 'fig'; $('#figCameraInput').click(); };
+  if ($('#scanPiece')) $('#scanPiece').onclick = () => { figAdd.scanKind = 'piece'; $('#figCameraInput').click(); };
+
+  document.querySelectorAll('[data-guess]').forEach((b) => {
+    b.onclick = () => {
+      const g = figAdd.guesses[Number(b.dataset.guess)];
+      if (figAdd.scanKind === 'fig') {
+        figStep('Finding this figure…', async () => {
+          const data = await helperGet(`figfind=${encodeURIComponent(g.id)}&name=${encodeURIComponent(g.name)}`);
+          if (!data.results.length) return noFigs("Couldn't find that figure", 'Try another match, or search by name above.');
+          if (data.results.length === 1) { figAdd.step = 'guesses'; showFigPreview(data.results[0].set_num); return; }
+          Object.assign(figAdd, { step: 'results', results: data.results, resultsTitle: 'Which one is yours?', resultsHint: null, back: 'guesses', filter: '' });
+        });
+        return;
+      }
+      figStep('Looking up this piece…', async () => {
+        const data = await helperGet('partfigs=' + encodeURIComponent(g.id));
+        figAdd.part = { num: data.part.part_num, name: data.part.name, img: data.part.part_img_url || g.img_url };
+        figAdd.colours = data.colors || [];
+        if (!figAdd.colours.length) return noFigs('No figures use this piece', "It doesn't appear in any minifigure. Check the match is right, or try scanning the torso.");
+        figAdd.step = 'colours';
+        if (figAdd.colours.length === 1) await pickColour(figAdd.colours[0].id);
+      });
+    };
+  });
+  document.querySelectorAll('[data-colour]').forEach((b) => {
+    b.onclick = () => figStep('Finding minifigures with this piece…', () => pickColour(b.dataset.colour));
+  });
+  document.querySelectorAll('[data-back]').forEach((b) => {
+    b.onclick = () => { Object.assign(figAdd, { step: b.dataset.back, error: '', filter: '' }); refreshFigOut(); };
+  });
+  const filter = $('#figFilter');
+  if (filter) {
+    filter.oninput = () => {
+      figAdd.filter = filter.value;
+      const pos = filter.selectionStart;
+      refreshFigOut();
+      const again = $('#figFilter');
+      again.focus();
+      again.setSelectionRange(pos, pos);
+    };
+  }
+  document.querySelectorAll('[data-fig]').forEach((el) => { el.onclick = () => showFigPreview(el.dataset.fig); });
+}
+
+async function pickColour(colourId) {
+  const data = await helperGet(`partfigs=${encodeURIComponent(figAdd.part.num)}&color=${encodeURIComponent(colourId)}`);
+  const colour = figAdd.colours.find((c) => String(c.id) === String(colourId)) || data.color || {};
+  figAdd.scanned = { partNum: data.part.part_num, colorId: Number(colourId) };
+  const n = data.results.length;
+  if (!n) return noFigs('No minifigures found', `Rebrickable doesn't list any figures with this piece in ${colour.name || 'that colour'}. Try another colour, or scan the whole figure.`);
+  Object.assign(figAdd, {
+    step: 'results', results: data.results, filter: '', back: figAdd.colours.length > 1 ? 'colours' : 'guesses',
+    resultsTitle: `${colour.name} ${data.part.name}: in ${plural(n, 'minifigure', 'minifigures')}`,
+    resultsHint: n > 12
+      ? ['Lots of figures use this piece', 'Type a name below to narrow it down, or scan the torso — printed torsos usually point to just one or two figures.']
+      : ['Tap a figure to see the rest of its pieces', 'and which sets it came in.'],
+  });
+}
+
+// Details of one figure before adding it: its pieces and the sets it came in.
+async function showFigPreview(figNum) {
+  openSheet(`<div class="spinner"></div><p class="center muted">Loading minifigure…</p>`);
+  let fig;
+  try {
+    fig = await fetchFig(figNum);
+  } catch (e) {
+    openSheet(`<h2>Couldn't load this figure</h2><p class="muted">${esc(e.message)}</p><button class="btn block" data-close>Close</button>`);
+    return;
+  }
+  if ($('#sheet').classList.contains('hidden')) return; // closed while loading
+  const owned = state.sets[fig.setNum];
+  const sc = figAdd.scanned;
+  const scanned = sc && fig.parts.find((p) => p.partNum === sc.partNum && p.colorId === sc.colorId);
+  const pieces = fig.parts.reduce((t, p) => t + p.qty, 0);
+  openSheet(`
+    <div class="fig-preview">
+      <div class="big-pic">${fig.img ? `<img src="${esc(fig.img)}" alt="">` : emptyFig()}</div>
+      <h2>${esc(fig.name)}</h2>
+      <div class="muted small">#${esc(fig.setNum)} · ${plural(pieces, 'piece', 'pieces')}</div>
+      <h3 class="steps-title">What it's made of</h3>
+      <div class="fig-parts">${fig.parts.map((p) => `
+        <div class="fig-part ${p === scanned ? 'scanned' : ''}">
+          <div class="thumb">${partImg(p)}</div>
+          <div class="grow" style="min-width:0">
+            <div class="small"><b>${p.qty > 1 ? p.qty + '× ' : ''}${esc(p.name)}</b></div>
+            <div class="small muted">${swatch(p.rgb)} ${esc(p.colorName)}</div>
+            ${p === scanned ? '<span class="badge ok">Your piece ✓</span>' : ''}
+          </div>
+        </div>`).join('')}</div>
+      <h3 class="steps-title">${fig.inSets.length ? `Comes in ${plural(fig.inSets.length, 'set', 'sets')}` : 'Not part of a set'}</h3>
+      ${figSetRows(fig, 3, false)}
+      <p></p>
+      ${owned
+        ? `<button class="btn primary block" id="figOpen">Open in my minifigures</button>`
+        : `<button class="btn primary block" id="figAddBtn">＋ Add to my minifigures</button>
+           <p class="muted small center">${scanned ? 'The piece you scanned is ticked as found; the rest go on your Looking for list.' : 'Its pieces start as missing, so they show on your Looking for list.'}</p>`}
+      <button class="btn block" data-close>Close</button>
+    </div>`);
+  const open = () => { ui.collection = 'figs'; savePref('collection', 'figs'); ui.setFilter = 'missing'; go('#set/' + encodeURIComponent(fig.setNum)); };
+  if ($('#figOpen')) $('#figOpen').onclick = open;
+  if ($('#figAddBtn')) {
+    $('#figAddBtn').onclick = () => {
+      fig.addedAt = Date.now();
+      if (scanned) scanned.have = Math.min(scanned.qty, 1);
+      state.sets[fig.setNum] = fig;
+      save();
+      open();
+      toast(`Added ${fig.name}`);
+    };
+  }
+}
+
+$('#figCameraInput').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (figAdd.photoUrl) URL.revokeObjectURL(figAdd.photoUrl);
+  const kind = figAdd.scanKind;
+  Object.assign(figAdd, { photoUrl: URL.createObjectURL(file), step: '', scanned: null, filter: '', back: '' });
+  if (route().name !== 'addfig') go('#addfig');
+  figStep(kind === 'fig' ? 'Working out which figure this is…' : 'Working out which piece this is…', async () => {
+    const items = (await identifyPiece(file, kind === 'fig' ? BRICKOGNIZE_FIGS : BRICKOGNIZE_API)).slice(0, 4);
+    if (!items.length) return noFigs(`Couldn't recognise that ${kind === 'fig' ? 'figure' : 'piece'}`, 'Try again closer up, on a plain background, or search by name.');
+    Object.assign(figAdd, { step: 'guesses', guesses: items });
+  });
+});
 
 const PART_SORTS = [
   ['colour', 'Colour'],
@@ -1310,7 +1684,7 @@ function renderSet(setNum) {
     <div class="card set-card" style="cursor:default">
       ${set.img ? `<img src="${esc(set.img)}" alt="">` : ''}
       <div class="grow">
-        <div class="muted small">#${esc(shortSetNum(set.setNum))} · ${esc(set.year)} · ${st.kinds} different parts</div>
+        <div class="muted small">${esc(setSub(set))} · ${st.kinds} different parts</div>
         <div class="progress"><div style="width:${st.need ? Math.round(st.have / st.need * 100) : 100}%"></div></div>
         <div style="margin-top:6px">
           ${st.missing ? `<span class="badge miss">${st.missing} ${st.missing === 1 ? 'piece' : 'pieces'} missing</span>` : `<span class="badge ok">Complete ✓</span>`}
@@ -1319,6 +1693,7 @@ function renderSet(setNum) {
         <button class="btn small value-btn" id="valueBtn">${hasValue(set) ? `💷 ${money(set.value)} · edit` : '💷 Add value'}</button>
       </div>
     </div>
+    ${isFig(set) ? renderFigSets(set) : ''}
     ${renderSwapBox(set)}
     <div class="sets-toolbar lf-toolbar">
       <label class="sort-select">
@@ -1342,7 +1717,7 @@ function renderSet(setNum) {
 
   if (!parts.length) {
     html += f === 'missing' && !ui.partColor && !ui.partType
-      ? `<div class="empty"><div class="big">🎉</div>Nothing missing — this set is complete!</div>`
+      ? `<div class="empty"><div class="big">🎉</div>Nothing missing — this ${noun(set)} is complete!</div>`
       : `<div class="empty">No pieces here.</div>`;
   } else {
     for (const g of groupParts(parts)) {
@@ -1354,12 +1729,12 @@ function renderSet(setNum) {
   html += `
     <p></p>
     <div class="card">
-      <h2>Set options</h2>
+      <h2>${isFig(set) ? 'Minifigure' : 'Set'} options</h2>
       <div class="row" style="flex-wrap:wrap">
         <button class="btn small" id="allHave">Tick all as have</button>
         <button class="btn small" id="allMissing">Untick all (start again)</button>
         <button class="btn small" id="refresh">Re-download list</button>
-        <button class="btn small" id="del" style="color:var(--miss)">Delete set</button>
+        <button class="btn small" id="del" style="color:var(--miss)">Delete ${noun(set)}</button>
       </div>
     </div>`;
   $('#view').innerHTML = html;
@@ -1395,13 +1770,13 @@ function renderSet(setNum) {
     };
   });
   $('#allHave').onclick = async () => {
-    if (!await askConfirm({ title: 'Tick every piece as have?', text: 'Every piece in this set will be marked as found.', ok: 'Tick all' })) return;
+    if (!await askConfirm({ title: 'Tick every piece as have?', text: `Every piece in this ${noun(set)} will be marked as found.`, ok: 'Tick all' })) return;
     setAllHave(setNum, true);
     if (route().arg === setNum) renderSet(setNum);
     toast('All pieces ticked');
   };
   $('#allMissing').onclick = async () => {
-    if (!await askConfirm({ title: 'Untick every piece?', text: 'This clears all your ticks for this set so you can start again. Every piece will show as missing.', ok: 'Untick all', danger: true })) return;
+    if (!await askConfirm({ title: 'Untick every piece?', text: `This clears all your ticks for this ${noun(set)} so you can start again. Every piece will show as missing.`, ok: 'Untick all', danger: true })) return;
     setAllHave(setNum, false);
     ui.setFilter = 'missing';
     if (route().arg === setNum) { renderSet(setNum); window.scrollTo(0, 0); }
@@ -1417,13 +1792,14 @@ function renderSet(setNum) {
       window.scrollTo(0, y);
     };
   });
+  bindFigSets(set);
   const delBtn = $('#delBtn');
   delBtn.classList.remove('hidden');
   $('#del').onclick = delBtn.onclick = async () => { if (await deleteSet(setNum)) go('#sets'); };
   $('#refresh').onclick = async () => {
     try {
       toast('Downloading…');
-      const fresh = await fetchSet(setNum, { refresh: true });
+      const fresh = isFig(set) ? await fetchFig(setNum, { refresh: true }) : await fetchSet(setNum, { refresh: true });
       const old = new Map(set.parts.map((p) => [p.key, p.have]));
       fresh.parts.forEach((p) => { p.have = Math.min(p.qty, old.get(p.key) || 0); });
       fresh.addedAt = set.addedAt;
@@ -1465,6 +1841,38 @@ function emptyBrick() {
   </svg>`;
 }
 
+// A simple toy figure (our own drawing) for empty minifigure screens.
+function emptyFig(cls = 'empty-brick') {
+  const [y, ye] = BRICK_COLOURS.y, [r, re] = BRICK_COLOURS.r, [b, be] = BRICK_COLOURS.b;
+  return `<svg class="${cls}" viewBox="0 0 100 124" aria-hidden="true">
+    <ellipse cx="50" cy="118" rx="30" ry="3.5" fill="#000" opacity=".08"/>
+    <rect x="43" y="5" width="14" height="7" rx="2.5" fill="${y}" stroke="${ye}" stroke-width="2"/>
+    <rect x="35" y="11" width="30" height="25" rx="9" fill="${y}" stroke="${ye}" stroke-width="2.4"/>
+    <circle cx="44.5" cy="22" r="2.4" fill="#222"/><circle cx="55.5" cy="22" r="2.4" fill="#222"/>
+    <path d="M43 28 Q50 33.5 57 28" fill="none" stroke="#222" stroke-width="2.2" stroke-linecap="round"/>
+    <rect x="43" y="35" width="14" height="5" fill="${y}" stroke="${ye}" stroke-width="2"/>
+    <rect x="19" y="43" width="11" height="27" rx="5.5" transform="rotate(14 24.5 56.5)" fill="${r}" stroke="${re}" stroke-width="2"/>
+    <rect x="70" y="43" width="11" height="27" rx="5.5" transform="rotate(-14 75.5 56.5)" fill="${r}" stroke="${re}" stroke-width="2"/>
+    <circle cx="21" cy="72" r="5" fill="${y}" stroke="${ye}" stroke-width="2"/><circle cx="79" cy="72" r="5" fill="${y}" stroke="${ye}" stroke-width="2"/>
+    <path d="M33 40 H67 L71 74 H29 Z" fill="${r}" stroke="${re}" stroke-width="2.4" stroke-linejoin="round"/>
+    <rect x="37" y="45" width="26" height="3" rx="1.5" fill="#fff" opacity=".28"/>
+    <rect x="28" y="74" width="44" height="9" rx="2" fill="${b}" stroke="${be}" stroke-width="2.2"/>
+    <rect x="29" y="82" width="20" height="31" rx="2.5" fill="${b}" stroke="${be}" stroke-width="2.2"/>
+    <rect x="51" y="82" width="20" height="31" rx="2.5" fill="${b}" stroke="${be}" stroke-width="2.2"/>
+  </svg>`;
+}
+
+// Small figure head for buttons and labels.
+function figIcon() {
+  const [y, ye] = BRICK_COLOURS.y;
+  return `<svg class="fig-ico" viewBox="0 0 20 20" aria-hidden="true">
+    <rect x="7" y="1" width="6" height="3" rx="1" fill="${y}" stroke="${ye}" stroke-width="1"/>
+    <rect x="3" y="3.5" width="14" height="13" rx="4.5" fill="${y}" stroke="${ye}" stroke-width="1.3"/>
+    <circle cx="7.5" cy="9" r="1.2" fill="#222"/><circle cx="12.5" cy="9" r="1.2" fill="#222"/>
+    <path d="M7 12 Q10 14.5 13 12" fill="none" stroke="#222" stroke-width="1.2" stroke-linecap="round"/>
+  </svg>`;
+}
+
 const MISSING_SORTS = [['colour', 'Colour'], ['type', 'Type'], ['needed', 'Most needed'], ['set', 'By set']];
 const MISSING_VIEWS = [['grid', '▦', 'Grid'], ['list', '☰', 'List'], ['compact', '≡', 'Compact']];
 
@@ -1502,11 +1910,11 @@ function renderMissing() {
   setTitle('Looking for');
   const all = missingGroups();
   if (!Object.keys(state.sets).length) {
-    $('#view').innerHTML = `<div class="empty">${emptyBrick()}<b>Nothing to look for yet</b><br>Add a set first, and all its missing pieces show up here.</div>`;
+    $('#view').innerHTML = `<div class="empty">${emptyBrick()}<b>Nothing to look for yet</b><br>Add a set or minifigure first, and all its missing pieces show up here.</div>`;
     return;
   }
   if (!all.length) {
-    $('#view').innerHTML = `<div class="empty">${emptyBrick()}<b>All done!</b><br>You're not missing anything. Every set is complete. 🎉</div>`;
+    $('#view').innerHTML = `<div class="empty">${emptyBrick()}<b>All done!</b><br>You're not missing anything. Everything is complete. 🎉</div>`;
     return;
   }
 
@@ -1517,14 +1925,17 @@ function renderMissing() {
     (!ui.missingColor || g.part.colorName === ui.missingColor) && (!ui.missingType || g.type === ui.missingType));
 
   const totalPieces = all.reduce((n, g) => n + g.total, 0);
-  const setCount = new Set(all.flatMap((g) => g.sets.map((s) => s.set.setNum))).size;
+  const owners = [...new Set(all.flatMap((g) => g.sets.map((s) => s.set)))];
+  const figOwners = owners.filter(isFig).length;
+  const setOwners = owners.length - figOwners;
+  const across = [setOwners && plural(setOwners, 'set', 'sets'), figOwners && plural(figOwners, 'minifigure', 'minifigures')].filter(Boolean).join(' & ');
   const shownPieces = shown.reduce((n, g) => n + g.total, 0);
   const filtering = ui.missingColor || ui.missingType;
   const activeColour = filtering && ui.missingColor ? all.find((g) => g.part.colorName === ui.missingColor).part.rgb : '';
 
   let html = `
     <section class="lf-head">
-      <h2 class="lf-title">${totalPieces} ${totalPieces === 1 ? 'piece' : 'pieces'} to find<br><span class="accent">across ${setCount} ${setCount === 1 ? 'set' : 'sets'}</span></h2>
+      <h2 class="lf-title">${totalPieces} ${totalPieces === 1 ? 'piece' : 'pieces'} to find<br><span class="accent">across ${across}</span></h2>
     </section>
     <div class="sets-toolbar lf-toolbar">
       <label class="sort-select">
@@ -1847,7 +2258,7 @@ function renderSettings() {
     </div>`}
     <div class="card">
       <h2>Backup file</h2>
-      <p class="muted small">${session ? 'Your sets are backed up online automatically. You can also keep a copy as a file.' : 'Your ticks are saved on this phone only. Download a backup now and then, or use it to move to a new phone.'} (${sets.length} sets saved.)</p>
+      <p class="muted small">${session ? 'Your sets are backed up online automatically. You can also keep a copy as a file.' : 'Your ticks are saved on this phone only. Download a backup now and then, or use it to move to a new phone.'} (${[plural(sets.filter((x) => !isFig(x)).length, 'set', 'sets'), sets.some(isFig) && plural(sets.filter(isFig).length, 'minifigure', 'minifigures')].filter(Boolean).join(' and ')} saved.)</p>
       <div class="row">
         <button class="btn grow" id="exportBtn">⬇️ Download backup</button>
         <button class="btn grow" id="importBtn">⬆️ Restore backup</button>
