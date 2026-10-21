@@ -620,7 +620,47 @@ async function identifyPiece(file, api = BRICKOGNIZE_API) {
   const res = await fetch(api, { method: 'POST', body: form });
   if (!res.ok) throw new Error('Recognition service error ' + res.status);
   const data = await res.json();
-  return data.items || [];
+  return { items: data.items || [], box: data.bounding_box || null };
+}
+
+// Zooms a photo in on the box the scanner found the piece or figure in, with a
+// little space around it. Returns a new picture link, or null to keep the whole
+// photo (no box, an unsure box, or the piece already fills the photo).
+async function zoomToBox(url, box) {
+  if (!box || !(box.image_width > 0) || !(box.image_height > 0) || (box.score ?? 1) < 0.3) return null;
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = url;
+  }).catch(() => null);
+  if (!img) return null;
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const sx = W / box.image_width, sy = H / box.image_height;
+  const l = box.left * sx, t = box.upper * sy, r = box.right * sx, b = box.lower * sy;
+  const w = r - l, h = b - t;
+  if (w <= 0 || h <= 0 || w * h > 0.6 * W * H) return null;
+  const pad = Math.max(w, h) * 0.2;
+  let cw = w + 2 * pad, ch = h + 2 * pad;
+  if (cw / ch < 4 / 3) cw = ch * 4 / 3; else ch = cw * 3 / 4; // same shape as the photo frame
+  cw = Math.min(cw, W); ch = Math.min(ch, H);
+  const cx = Math.max(0, Math.min(W - cw, (l + r) / 2 - cw / 2));
+  const cy = Math.max(0, Math.min(H - ch, (t + b) / 2 - ch / 2));
+  const scale = Math.min(1, 1000 / cw);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(cw * scale);
+  canvas.height = Math.round(ch * scale);
+  canvas.getContext('2d').drawImage(img, cx, cy, cw, ch, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+  return blob ? URL.createObjectURL(blob) : null;
+}
+
+// Swaps a scan's photo for the zoomed-in one, when there is one.
+async function zoomPhoto(holder, box) {
+  const zoomed = await zoomToBox(holder.photoUrl, box);
+  if (!zoomed) return;
+  URL.revokeObjectURL(holder.photoUrl);
+  holder.photoUrl = zoomed;
 }
 
 // Strip print/pattern/mould suffixes so e.g. "3626bpr0001" ≈ "3626b" ≈ "3626".
@@ -2197,7 +2237,9 @@ $('#figCameraInput').addEventListener('change', async (e) => {
   Object.assign(figAdd, { photoUrl: URL.createObjectURL(file), step: '', scanned: null, filter: '', back: '', entry: undefined, colours: null });
   if (route().name !== 'addfig') go('#addfig');
   figStep(kind === 'fig' ? 'Working out which figure this is…' : 'Working out which piece this is…', async () => {
-    const items = (await identifyPiece(file, kind === 'fig' ? BRICKOGNIZE_FIGS : BRICKOGNIZE_API)).slice(0, 4);
+    const found = await identifyPiece(file, kind === 'fig' ? BRICKOGNIZE_FIGS : BRICKOGNIZE_API);
+    await zoomPhoto(figAdd, found.box);
+    const items = found.items.slice(0, 4);
     if (!items.length) return noFigs(`Couldn't recognise that ${kind === 'fig' ? 'figure' : 'piece'}`, 'Try again closer up, on a plain background, or search by name.');
     Object.assign(figAdd, { step: 'guesses', guesses: items });
   });
@@ -2954,7 +2996,9 @@ $('#cameraInput').addEventListener('change', async (e) => {
   scanState = { photoUrl: URL.createObjectURL(file), loading: true };
   if (route().name !== 'scan') go('#scan'); else renderScan();
   try {
-    scanState.items = await identifyPiece(file);
+    const found = await identifyPiece(file);
+    scanState.items = found.items;
+    await zoomPhoto(scanState, found.box);
   } catch (err) {
     scanState.error = err instanceof TypeError
       ? 'Could not reach the recognition service. Check your internet connection.'
