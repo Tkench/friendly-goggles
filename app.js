@@ -526,8 +526,22 @@ async function fetchFig(figNum, { refresh = false } = {}) {
   fig.kind = 'fig';
   fig.inSets = (data.sets || []).map((x) => ({ setNum: x.set_num, name: x.name, year: x.year, img: x.set_img_url || '' }))
     .sort((a, b) => (a.year || 0) - (b.year || 0));
+  // Accessories and stand from the figure's own packet (collectable series, polybag…).
+  if (data.pack) {
+    addAccessories(fig, buildSet({ set_num: data.pack.set_num, name: '', year: '' }, data.pack.results || [], data.cats || {}).parts);
+    fig.pack = { setNum: data.pack.set_num, name: data.pack.name };
+  }
+  fig.accChecked = true;
   figCache.set(figNum, fig);
   return structuredClone(fig);
+}
+
+function addAccessories(fig, accParts) {
+  for (const a of accParts) {
+    const same = fig.parts.find((p) => p.key === a.key);
+    if (same) same.qty += a.qty;
+    else fig.parts.push({ ...a, have: 0, acc: true });
+  }
 }
 
 /* ---------- Brickognize ---------- */
@@ -1212,7 +1226,9 @@ function figSetRows(fig, limit, withButtons) {
           <div class="small muted">${esc(setSub(x))}${withButtons && state.sets[x.setNum] ? ' · <span class="yours">in your sets</span>' : ''}</div>
         </div>
       </div>
-      ${!withButtons ? '' : state.sets[x.setNum]
+      ${!withButtons ? '' : fig.pack && fig.pack.setNum === x.setNum
+        ? '<span class="badge ok">Its own packet</span>'
+        : state.sets[x.setNum]
         ? `<button class="btn ok small" data-move-to="${esc(x.setNum)}">Move here</button>`
         : `<button class="btn small" data-add-move="${esc(x.setNum)}">Add &amp; move</button>`}
     </div>`).join('');
@@ -1270,6 +1286,15 @@ function renderSetFigs(set) {
   if (!set.figs) return setFigsLoading.has(set.setNum) ? '<p class="muted small center">Loading minifigures…</p>' : '';
   if (!set.figs.length) return '';
   const prog = figProgress(set);
+  if (isFigPacket(set)) {
+    const { f } = prog[0];
+    return `
+    <div class="card acc-offer">
+      <h2>🎒 This is a minifigure packet</h2>
+      <p class="muted small">It's just ${esc(f.name)} with ${plural(extraPieces(set), 'accessory', 'accessories')}. You can keep it in Minifigures instead, with the accessories included and your ticks kept.</p>
+      <button class="btn primary block" id="toFig">${figIcon()} Turn into a minifigure</button>
+    </div>`;
+  }
   const total = prog.reduce((t, x) => t + x.f.qty, 0);
   const done = prog.reduce((t, x) => t + x.done, 0);
   return `
@@ -1282,6 +1307,60 @@ function renderSetFigs(set) {
           ${d === f.qty ? '<span class="badge ok">✓ Done</span>' : `<span class="badge miss">${copies.reduce((t, m) => t + m, 0)} missing</span>`}
         </button>`).join('')}</div>
     </div>`;
+}
+
+// Pieces in a set that aren't part of its minifigures (accessories, stand…).
+function extraPieces(set) {
+  const figPieces = (set.figs || []).reduce((t, f) => t + f.qty * f.parts.reduce((u, p) => u + p.qty, 0), 0);
+  return set.parts.reduce((t, p) => t + p.qty, 0) - figPieces;
+}
+
+// A "set" that is really one figure in its own packet (collectable series, polybag…).
+const isFigPacket = (set) => !isFig(set) && set.figs && set.figs.length === 1 && set.figs[0].qty === 1 && extraPieces(set) <= 20;
+
+async function turnIntoFig(set) {
+  const f = set.figs[0];
+  if (!await askConfirm({
+    title: `Turn ${set.name} into a minifigure?`,
+    text: `It moves to your Minifigures as ${f.name}, with its accessories included and the pieces you've found still ticked.`,
+    ok: 'Turn into a minifigure',
+  })) return;
+  let fig;
+  try {
+    fig = await fetchFig(f.figNum);
+  } catch (e) {
+    toast(e.message);
+    return;
+  }
+  if (!state.sets[set.setNum]) return;
+  if (!fig.pack) { // make sure the packet's accessories come along
+    addAccessories(fig, set.parts.filter((p) => !f.parts.some((x) => x.key === p.key)).map((p) => ({ ...p })));
+    fig.pack = { setNum: set.setNum, name: set.name };
+  }
+  const pool = new Map(set.parts.map((p) => [p.key, p.have]));
+  const existing = state.sets[fig.setNum];
+  for (const p of fig.parts) {
+    const got = Math.min(p.qty, pool.get(p.key) || 0);
+    pool.set(p.key, (pool.get(p.key) || 0) - got);
+    const before = existing && existing.parts.find((x) => x.key === p.key);
+    p.have = Math.min(p.qty, got + (before ? before.have : 0));
+  }
+  const undo = { set: structuredClone(set), fig: existing ? structuredClone(existing) : null };
+  fig.addedAt = existing ? existing.addedAt : Date.now();
+  if (hasValue(set)) fig.value = set.value;
+  delete state.sets[set.setNum];
+  state.sets[fig.setNum] = fig;
+  save();
+  lastUndo = () => {
+    state.sets[undo.set.setNum] = undo.set;
+    if (undo.fig) state.sets[undo.fig.setNum] = undo.fig; else delete state.sets[fig.setNum];
+    save();
+    render();
+  };
+  ui.collection = 'figs';
+  savePref('collection', 'figs');
+  location.replace('#set/' + encodeURIComponent(fig.setNum));
+  toast(`${fig.name} is now in your Minifigures`, true);
 }
 
 function showSetFigSheet(set, i, onChange) {
@@ -1323,12 +1402,30 @@ function renderFigSets(fig) {
   const list = fig.inSets || [];
   const n = list.length;
   const done = !setStats(fig).missing;
+  const real = list.filter((x) => !fig.pack || x.setNum !== fig.pack.setNum);
+  const offer = accOffers.get(fig.setNum);
+  const accCard = offer ? `
+    <div class="card acc-offer">
+      <h2>🎒 ${plural(offer.parts.length, 'accessory', 'accessories')} from its packet</h2>
+      <p class="muted small">${esc(fig.name)} came in its own packet (${esc(offer.pack.name)}). Add its accessories to this figure so you can track them here too.</p>
+      <div class="acc-thumbs">${offer.parts.map((p) => `<div class="thumb" title="${esc(p.name)}">${partImg(p)}</div>`).join('')}</div>
+      <button class="btn primary block" id="addAcc">＋ Add accessories</button>
+    </div>` : '';
+  if (offer) return accCard; // sort out the packet first, then show where it can go
+  if (!real.length && fig.pack) {
+    return accCard + `
+    <div class="card fig-sets">
+      <h2>🎒 Sold in its own packet</h2>
+      <p class="muted small">${esc(fig.pack.name)} (#${esc(shortSetNum(fig.pack.setNum))}). Its accessories are included in the pieces below.</p>
+    </div>`;
+  }
   // Sets you already have first, so "Move here" is easy to find.
   const sorted = { ...fig, inSets: [...list].sort((a, b) => !!state.sets[b.setNum] - !!state.sets[a.setNum]) };
   const yours = list.filter((x) => state.sets[x.setNum]).length;
-  return `
+  return accCard + `
     <div class="card fig-sets ${done && n ? 'done' : ''}">
       <h2>${!n ? '🧱 Not part of a set' : done ? '✅ Complete! Move it to its set' : `🧱 Comes in ${plural(n, 'set', 'sets')}`}</h2>
+      ${fig.pack ? `<p class="muted small">🎒 Also sold in its own packet (#${esc(shortSetNum(fig.pack.setNum))}); its accessories are included below.</p>` : ''}
       ${n ? `<p class="muted small">${yours
         ? `${yours === 1 ? 'One of these is' : `${yours} of these are`} in your sets. <b>Move here</b> ticks this figure's found pieces in that set and takes it off your Minifigures list.`
         : '<b>Add &amp; move</b> adds the whole set (its other pieces start as missing) and moves this figure into it.'}</p>` : ''}
@@ -1379,8 +1476,44 @@ async function moveFigToSet(fig, setNum, { ask = true } = {}) {
   }
 }
 
+// Figures added before accessories existed: look once for their packet's accessories.
+const accOffers = new Map();
+const accChecking = new Set();
+async function checkFigAccessories(fig) {
+  if (fig.accChecked || accChecking.has(fig.setNum) || !helperAvailable()) return;
+  accChecking.add(fig.setNum);
+  try {
+    const fresh = await fetchFig(fig.setNum, { refresh: true });
+    const live = state.sets[fig.setNum];
+    if (!live) return;
+    const extras = fresh.parts.filter((p) => p.acc && !live.parts.some((x) => x.key === p.key));
+    if (fresh.pack && extras.length) accOffers.set(fig.setNum, { pack: fresh.pack, parts: extras });
+    else { live.accChecked = true; save(); }
+    const r = route();
+    if (r.name === 'set' && r.arg === fig.setNum) { const y = window.scrollY; renderSet(fig.setNum); window.scrollTo(0, y); }
+  } catch (e) {
+    console.warn('Could not check accessories for', fig.setNum, e);
+  } finally {
+    accChecking.delete(fig.setNum);
+  }
+}
+
 function bindFigSets(fig) {
   if (!isFig(fig)) return;
+  checkFigAccessories(fig);
+  const addAcc = $('#addAcc');
+  if (addAcc) {
+    addAcc.onclick = () => {
+      const offer = accOffers.get(fig.setNum);
+      addAccessories(fig, offer.parts);
+      fig.pack = offer.pack;
+      fig.accChecked = true;
+      accOffers.delete(fig.setNum);
+      save();
+      renderSet(fig.setNum);
+      toast(`Added ${plural(offer.parts.length, 'accessory', 'accessories')}`);
+    };
+  }
   document.querySelectorAll('[data-open-set]').forEach((b) => { b.onclick = () => go('#set/' + encodeURIComponent(b.dataset.openSet)); });
   const more = $('[data-more-sets]');
   if (more) more.onclick = () => { ui.figSetsAll = fig.setNum; renderSet(fig.setNum); };
@@ -1624,12 +1757,13 @@ async function showFigPreview(figNum) {
       <h2>${esc(fig.name)}</h2>
       <div class="muted small">#${esc(fig.setNum)} · ${plural(pieces, 'piece', 'pieces')}</div>
       <h3 class="steps-title">What it's made of</h3>
-      <div class="fig-parts">${fig.parts.map((p) => `
+      ${fig.pack ? `<p class="muted small">🎒 Includes the accessories from its packet (${esc(fig.pack.name)}).</p>` : ''}
+      <div class="fig-parts">${[...fig.parts].sort((a, b) => !!a.acc - !!b.acc).map((p) => `
         <div class="fig-part ${p === scanned ? 'scanned' : ''}">
           <div class="thumb">${partImg(p)}</div>
           <div class="grow" style="min-width:0">
             <div class="small"><b>${p.qty > 1 ? p.qty + '× ' : ''}${esc(p.name)}</b></div>
-            <div class="small muted">${swatch(p.rgb)} ${esc(p.colorName)}</div>
+            <div class="small muted">${swatch(p.rgb)} ${esc(p.colorName)}${p.acc ? ' <span class="acc-tag">accessory</span>' : ''}</div>
             ${p === scanned ? '<span class="badge ok">Your piece ✓</span>' : ''}
           </div>
         </div>`).join('')}</div>
@@ -1747,7 +1881,7 @@ function renderPartItems(items) {
         <div class="prow-pic" data-act="view">${partImg(p)}</div>
         <div class="grow">
           <div class="pname">${esc(p.name)}</div>
-          <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
+          <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}${p.acc ? ' <span class="acc-tag">accessory</span>' : ''}</div>
           ${missing ? `<span class="badge miss">need ${missing}</span>` : '<span class="badge ok">Got them ✓</span>'}
         </div>
         <div class="counter vertical">
@@ -1766,7 +1900,7 @@ function renderPartItems(items) {
         <div class="crow-pic" data-act="view">${partImg(p)}</div>
         <div class="grow" data-act="view">
           <div class="crow-name">${esc(p.name)}</div>
-          <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
+          <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}${p.acc ? ' <span class="acc-tag">accessory</span>' : ''}</div>
         </div>
         <div class="mini-counter">
           <button data-act="minus" aria-label="One less">−</button>
@@ -1786,7 +1920,7 @@ function renderPartItems(items) {
           </div>
           <div class="info">
             <div class="pname">${esc(p.name)}</div>
-            <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}</div>
+            <div class="meta">${swatch(p.rgb)} ${esc(p.colorName)} · ${esc(p.partNum)}${p.acc ? ' <span class="acc-tag">accessory</span>' : ''}</div>
           </div>
           <div class="counter">
             <button data-act="minus" aria-label="One less">−</button>
@@ -1954,6 +2088,7 @@ function renderSet(setNum) {
   });
   bindFigSets(set);
   document.querySelectorAll('[data-setfig]').forEach((b) => { b.onclick = () => showSetFigSheet(set, Number(b.dataset.setfig), rerender); });
+  if ($('#toFig')) $('#toFig').onclick = () => turnIntoFig(set);
   if (!set.figs && !isFig(set)) loadSetFigs(set);
   const delBtn = $('#delBtn');
   delBtn.classList.remove('hidden');

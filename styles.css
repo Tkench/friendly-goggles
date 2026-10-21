@@ -582,3 +582,7 @@ body.welcome .topbar {
 .fig-part.need { border-color: var(--miss); }
 .fig-part[data-part] { cursor: pointer; }
 .fig-sets .for-set .btn { white-space: nowrap; flex: none; }
+.acc-tag { font-size: 11px; font-weight: 600; background: var(--chip); color: var(--muted); border-radius: 999px; padding: 1px 7px; }
+.acc-offer { border: 2px solid var(--brand); }
+.acc-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+.acc-thumbs .thumb { width: 48px; height: 48px; }

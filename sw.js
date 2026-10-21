@@ -1,6 +1,6 @@
 // Offline support: the app itself is network-first (so updates show up),
 // part pictures are cached so the lists still look right without signal.
-const SHELL = 'brickfinder-shell-v26';
+const SHELL = 'brickfinder-shell-v27';
 const IMAGES = 'brickfinder-images-v1';
 const SHELL_FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'privacy.html', 'terms.html'];
 

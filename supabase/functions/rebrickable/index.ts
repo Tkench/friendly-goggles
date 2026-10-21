@@ -9,7 +9,8 @@
 // GET /functions/v1/rebrickable?set=6080-1[&refresh=1]
 //   200 { info, results, cats }   404 { error: "not_found" }
 // Minifigures:
-//   ?fig=fig-000123[&refresh=1]   { info, results, sets, cats }  (its pieces and the sets it came in)
+//   ?fig=fig-000123[&refresh=1]   { info, results, sets, pack, cats }  (its pieces, the sets it came in,
+//                                 and the accessories from its own packet, if it had one)
 //   ?figsearch=falcon             { results: [figure, …] }       (search by name or number)
 //   ?figfind=cas123&name=…        { results: [figure, …] }       (match a figure scan)
 //   ?partfigs=973pb123c01         { part, colors: [colour, …] }  (colours a scanned piece comes in)
@@ -138,9 +139,34 @@ async function loadFig(fig: string) {
   const results = (await allPages(`/minifigs/${num}/parts/?page_size=1000&inc_part_details=1`)).map(trimPart);
   // deno-lint-ignore no-explicit-any
   const sets = (await allPages(`/minifigs/${num}/sets/?page_size=1000`)).map((s: any) => ({
-    set_num: s.set_num, name: s.set_name ?? s.name, year: s.year, set_img_url: s.set_img_url, quantity: s.quantity,
+    set_num: s.set_num, name: s.set_name ?? s.name, year: s.year, set_img_url: s.set_img_url, quantity: s.quantity, num_parts: s.num_parts,
   }));
-  return { info: { set_num: info.set_num, name: info.name, num_parts: info.num_parts, set_img_url: info.set_img_url }, results, sets };
+  return {
+    info: { set_num: info.set_num, name: info.name, num_parts: info.num_parts, set_img_url: info.set_img_url },
+    results, sets, pack: await findPack(fig, info.num_parts || results.length, sets),
+  };
+}
+
+// A figure sold on its own (collectable series, polybag, key chain…) comes in
+// a small "set" holding just that figure plus its accessories and stand.
+// Returns those extra pieces, or null if the figure had no packet of its own.
+// deno-lint-ignore no-explicit-any
+async function findPack(fig: string, figParts: number, sets: any[]) {
+  const small = sets
+    .filter((s) => typeof s.num_parts !== 'number' || s.num_parts <= figParts + 15)
+    .sort((a, b) => (a.num_parts ?? 999) - (b.num_parts ?? 999))
+    .slice(0, 3);
+  for (const s of small) {
+    const num = encodeURIComponent(s.set_num);
+    const figs = await allPages(`/sets/${num}/minifigs/?page_size=100`);
+    if (figs.length !== 1 || figs[0].set_num !== fig || (figs[0].quantity ?? 1) !== 1) continue;
+    // Without inc_minifig_parts the list is just the accessories and stand.
+    // deno-lint-ignore no-explicit-any
+    const extras = (await allPages(`/sets/${num}/parts/?page_size=1000&inc_part_details=1`)).filter((r: any) => !r.is_spare);
+    if (!extras.length || extras.length > 20) continue;
+    return { set_num: s.set_num, name: s.name, results: extras.map(trimPart) };
+  }
+  return null;
 }
 
 async function searchFigs(q: string) {
@@ -235,7 +261,7 @@ Deno.serve(async (req: Request) => {
     if (fig !== null) {
       if (!FIG_NUM.test(fig)) return reply(400, { error: 'Invalid minifigure number' });
       const cats = await cached('categories', KEEP_FOR, loadCategories);
-      const data = await cached('fig:' + fig.toLowerCase(), refresh, () => loadFig(fig));
+      const data = await cached('fig2:' + fig.toLowerCase(), refresh, () => loadFig(fig));
       return reply(200, { ...(data as object), cats });
     }
     const q = params.get('figsearch');
