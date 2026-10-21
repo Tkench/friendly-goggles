@@ -517,6 +517,31 @@ async function helperGet(query) {
   throw err;
 }
 
+/* The "piece → minifigures" lookup, rebuilt weekly from Rebrickable's catalogue
+ * downloads by tools/build-fig-index.mjs and published with the app. */
+const FIG_INDEX = 'data/figindex/';
+const RB_MEDIA = 'https://cdn.rebrickable.com/media/';
+const figIndexFiles = new Map();
+
+function shardOf(partNum) { // must match tools/build-fig-index.mjs
+  let h = 5381;
+  for (const ch of String(partNum).toLowerCase()) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0;
+  return (h % 256).toString(16).padStart(2, '0');
+}
+
+function figIndexFile(name) {
+  if (!figIndexFiles.has(name)) {
+    figIndexFiles.set(name, fetch(FIG_INDEX + name).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+  }
+  return figIndexFiles.get(name).then((data) => { if (!data) figIndexFiles.delete(name); return data; });
+}
+
+// The lookup entry for one piece: { n: name, c: { colourId: { i: picture, f: [[fig, name, picture, pieces]…] } } }
+async function figIndexPart(partNum) {
+  const shard = await figIndexFile(`p/${shardOf(partNum)}.json`);
+  return shard ? shard[String(partNum).toLowerCase()] || null : undefined; // undefined: lookup not available
+}
+
 const figCache = new Map(); // figures looked at on the Add page, so adding doesn't download again
 
 async function fetchFig(figNum, { refresh = false } = {}) {
@@ -1752,6 +1777,7 @@ function renderFigOut() {
       <button class="colour-opt" data-colour="${esc(c.id)}">
         ${c.img ? `<img src="${esc(c.img)}" alt="" loading="lazy">` : '<span class="no-pic">🧱</span>'}
         <span>${swatch(c.rgb)} ${esc(c.name)}</span>
+        ${c.figs ? `<em class="muted small">${plural(c.figs, 'figure', 'figures')}</em>` : ''}
       </button>`).join('')}</div>`;
     h += `<button class="link-btn" data-back="guesses">‹ Pick a different piece</button>`;
   }
@@ -1846,10 +1872,35 @@ function bindAddFig() {
         return;
       }
       figStep('Looking up this piece…', async () => {
-        const data = await helperGet('partfigs=' + encodeURIComponent(g.id));
-        figAdd.part = { num: data.part.part_num, name: data.part.name, img: data.part.part_img_url || g.img_url };
-        figAdd.colours = data.colors || [];
-        if (!figAdd.colours.length) return noFigs('No figures use this piece', "It doesn't appear in any minifigure. Check the match is right, or try scanning the torso.");
+        // Try the scanner's part number first, then Rebrickable's number for it.
+        let num = g.id;
+        let entry = await figIndexPart(num);
+        const lookupUp = entry !== undefined; // false until the weekly lookup has been published
+        let helper = null;
+        if (!entry) {
+          try {
+            helper = await helperGet('partfigs=' + encodeURIComponent(g.id));
+            num = helper.part.part_num;
+            if (lookupUp) entry = await figIndexPart(num);
+          } catch (e) {
+            if (e.status !== 404) throw e;
+          }
+        }
+        if (entry) {
+          const names = (await figIndexFile('colors.json')) || {};
+          Object.assign(figAdd, {
+            entry,
+            part: { num, name: entry.n || g.name, img: g.img_url },
+            colours: Object.entries(entry.c).map(([id, v]) => ({
+              id: Number(id), name: (names[id] || [])[0] || 'Colour ' + id, rgb: (names[id] || [])[1] || 'cccccc',
+              img: v.i ? RB_MEDIA + v.i : g.img_url, figs: v.f.length,
+            })).sort((a, b) => b.figs - a.figs),
+          });
+        } else if (!lookupUp && helper && helper.colors && helper.colors.length) {
+          Object.assign(figAdd, { entry: null, part: { num, name: helper.part.name, img: helper.part.part_img_url || g.img_url }, colours: helper.colors });
+        } else {
+          return noFigs("This piece isn't part of any minifigure", 'Check the match is right (tap Scan one piece to try again), or scan another piece. A printed torso works best.');
+        }
         figAdd.step = 'colours';
         if (figAdd.colours.length === 1) await pickColour(figAdd.colours[0].id);
       });
@@ -1876,7 +1927,13 @@ function bindAddFig() {
 }
 
 async function pickColour(colourId) {
-  const data = await helperGet(`partfigs=${encodeURIComponent(figAdd.part.num)}&color=${encodeURIComponent(colourId)}`);
+  const hit = figAdd.entry && figAdd.entry.c[colourId];
+  const data = hit
+    ? {
+      part: { part_num: figAdd.part.num, name: figAdd.part.name },
+      results: hit.f.map(([num, name, img, n]) => ({ set_num: num, name, set_img_url: img ? RB_MEDIA + img : '', num_parts: n })),
+    }
+    : await helperGet(`partfigs=${encodeURIComponent(figAdd.part.num)}&color=${encodeURIComponent(colourId)}`);
   const colour = figAdd.colours.find((c) => String(c.id) === String(colourId)) || data.color || {};
   figAdd.scanned = { partNum: data.part.part_num, colorId: Number(colourId) };
   const n = data.results.length;
@@ -1963,7 +2020,7 @@ $('#figCameraInput').addEventListener('change', async (e) => {
   if (!file) return;
   if (figAdd.photoUrl) URL.revokeObjectURL(figAdd.photoUrl);
   const kind = figAdd.scanKind;
-  Object.assign(figAdd, { photoUrl: URL.createObjectURL(file), step: '', scanned: null, filter: '', back: '' });
+  Object.assign(figAdd, { photoUrl: URL.createObjectURL(file), step: '', scanned: null, filter: '', back: '', entry: undefined, colours: null });
   if (route().name !== 'addfig') go('#addfig');
   figStep(kind === 'fig' ? 'Working out which figure this is…' : 'Working out which piece this is…', async () => {
     const items = (await identifyPiece(file, kind === 'fig' ? BRICKOGNIZE_FIGS : BRICKOGNIZE_API)).slice(0, 4);

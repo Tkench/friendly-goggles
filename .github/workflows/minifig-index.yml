@@ -1,0 +1,44 @@
+# Rebuilds the "piece → minifigures" lookup (data/figindex) from Rebrickable's
+# free catalogue downloads, so scanning one piece can find the figures it's in.
+name: Minifigure lookup
+
+on:
+  schedule:
+    - cron: '17 4 * * 1' # Mondays, early morning (only runs from the default branch)
+  workflow_dispatch:
+  push:
+    paths:
+      - tools/build-fig-index.mjs
+      - .github/workflows/minifig-index.yml
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: minifig-index
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/modest-shannon-2k2srb # the branch the app is published from
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tools/build-fig-index.mjs
+      - name: Save the new lookup
+        run: |
+          git config user.name "Last Brick bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/figindex
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Update minifigure lookup from Rebrickable"
+          git push origin HEAD:claude/modest-shannon-2k2srb
+      - name: Republish the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "Pages will pick it up on the next change"

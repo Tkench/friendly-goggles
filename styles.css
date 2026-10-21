@@ -598,3 +598,4 @@ body.welcome .topbar {
 .hint-arrow { font-size: 20px; color: var(--muted); font-weight: 700; }
 .loose-figs { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--ok-bg); border-radius: 12px; padding: 8px 10px; margin-bottom: 10px; font-size: 14px; }
 .loose-figs .btn { flex: none; }
+.colour-opt em { font-style: normal; font-size: 12px; }
