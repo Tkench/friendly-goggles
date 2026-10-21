@@ -586,3 +586,5 @@ body.welcome .topbar {
 .acc-offer { border: 2px solid var(--brand); }
 .acc-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
 .acc-thumbs .thumb { width: 48px; height: 48px; }
+.fig-count { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.fig-count .mini-counter .count { min-width: 24px; text-align: center; font-weight: 700; font-size: 17px; }

@@ -50,7 +50,7 @@ function savePref(name, value) {
 }
 
 // What sync compares to tell whether a set changed since the last save.
-const setSig = (set) => JSON.stringify([set.name, set.value, set.parts.length, set.parts.map((p) => p.have)]);
+const setSig = (set) => JSON.stringify([set.name, set.value, set.count || 1, set.parts.length, set.parts.map((p) => p.have)]);
 let lastSigs = new Map(Object.values(state.sets).map((set) => [set.setNum, setSig(set)]));
 
 // Saves on this device. Stamps changed sets (and deletions) with the time so
@@ -346,7 +346,7 @@ function shortSetNum(setNum) {
 const isFig = (s) => s.kind === 'fig' || /^fig-/i.test(s.setNum);
 const noun = (s, n = 1) => (isFig(s) ? (n === 1 ? 'minifigure' : 'minifigures') : (n === 1 ? 'set' : 'sets'));
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const setSub = (s) => `#${shortSetNum(s.setNum)}${s.year ? ' · ' + s.year : ''}`;
+const setSub = (s) => `${(s.count || 1) > 1 ? `×${s.count} · ` : ''}#${shortSetNum(s.setNum)}${s.year ? ' · ' + s.year : ''}`;
 
 function setStats(set) {
   let need = 0, have = 0, kinds = 0, kindsMissing = 0;
@@ -524,6 +524,8 @@ async function fetchFig(figNum, { refresh = false } = {}) {
   const data = await helperGet(`fig=${encodeURIComponent(figNum)}${refresh ? '&refresh=1' : ''}`);
   const fig = buildSet({ ...data.info, year: '' }, data.results || [], data.cats || {});
   fig.kind = 'fig';
+  fig.count = 1;
+  for (const p of fig.parts) p.per = p.qty;
   fig.inSets = (data.sets || []).map((x) => ({ setNum: x.set_num, name: x.name, year: x.year, img: x.set_img_url || '' }))
     .sort((a, b) => (a.year || 0) - (b.year || 0));
   // Accessories and stand from the figure's own packet (collectable series, polybag…).
@@ -536,12 +538,32 @@ async function fetchFig(figNum, { refresh = false } = {}) {
   return structuredClone(fig);
 }
 
+// How many of a piece one figure needs (qty covers all copies of the figure).
+const perFig = (fig, p) => p.per || p.qty / (fig.count || 1);
+
 function addAccessories(fig, accParts) {
+  const n = fig.count || 1;
   for (const a of accParts) {
+    const one = a.per || a.qty;
     const same = fig.parts.find((p) => p.key === a.key);
-    if (same) same.qty += a.qty;
-    else fig.parts.push({ ...a, have: 0, acc: true });
+    if (same) { same.per = perFig(fig, same) + one; same.qty = same.per * n; }
+    else fig.parts.push({ ...a, per: one, qty: one * n, have: 0, acc: true });
   }
+}
+
+// Changes how many of a figure you have. Pieces found stay ticked (up to the new total).
+function setFigCount(fig, n) {
+  for (const p of fig.parts) {
+    p.per = perFig(fig, p);
+    p.qty = p.per * n;
+    p.have = Math.min(p.have, p.qty);
+  }
+  fig.count = n;
+}
+
+// How many complete copies of a figure you have.
+function figsComplete(fig) {
+  return Math.min(...fig.parts.map((p) => Math.floor(p.have / perFig(fig, p))), fig.count || 1);
 }
 
 /* ---------- Brickognize ---------- */
@@ -1339,13 +1361,19 @@ async function turnIntoFig(set) {
   }
   const pool = new Map(set.parts.map((p) => [p.key, p.have]));
   const existing = state.sets[fig.setNum];
+  const undo = { set: structuredClone(set), fig: existing ? structuredClone(existing) : null };
+  // Already have this figure? Then this becomes one more of it.
+  if (existing) {
+    addAccessories(fig, existing.parts.filter((p) => !fig.parts.some((x) => x.key === p.key)).map((p) => ({ ...p, per: perFig(existing, p) })));
+    setFigCount(fig, (existing.count || 1) + 1);
+    if (!fig.pack && existing.pack) fig.pack = existing.pack;
+  }
   for (const p of fig.parts) {
-    const got = Math.min(p.qty, pool.get(p.key) || 0);
+    const got = Math.min(perFig(fig, p), pool.get(p.key) || 0);
     pool.set(p.key, (pool.get(p.key) || 0) - got);
     const before = existing && existing.parts.find((x) => x.key === p.key);
     p.have = Math.min(p.qty, got + (before ? before.have : 0));
   }
-  const undo = { set: structuredClone(set), fig: existing ? structuredClone(existing) : null };
   fig.addedAt = existing ? existing.addedAt : Date.now();
   if (hasValue(set)) fig.value = set.value;
   delete state.sets[set.setNum];
@@ -1438,10 +1466,16 @@ function renderFigSets(fig) {
 async function moveFigToSet(fig, setNum, { ask = true } = {}) {
   const set = state.sets[setNum];
   if (!set || !state.sets[fig.setNum]) return;
-  const found = fig.parts.reduce((t, p) => t + p.have, 0);
+  const count = fig.count || 1;
+  // Only one figure's worth of pieces moves; the rest stay with your other copies.
+  const take = (p) => Math.min(p.have, perFig(fig, p));
+  const room = (p) => { const t = set.parts.find((x) => x.key === p.key); return t ? Math.min(take(p), t.qty - t.have) : 0; };
+  const found = fig.parts.reduce((t, p) => t + room(p), 0);
   const ok = !ask || await askConfirm({
-    title: `Move ${fig.name} into ${set.name}?`,
-    text: found
+    title: count > 1 ? `Move one of your ${count} ${fig.name} into ${set.name}?` : `Move ${fig.name} into ${set.name}?`,
+    text: count > 1
+      ? `${found ? `${plural(found, 'found piece', 'found pieces')} will be ticked in ${set.name} (#${shortSetNum(setNum)})` : 'No pieces are found for it yet'}, and you'll have ${count - 1} left in Minifigures.`
+      : found
       ? `Its ${plural(found, 'found piece', 'found pieces')} will be ticked in ${set.name} (#${shortSetNum(setNum)}) and it will come off your Minifigures list.`
       : `It has no pieces found yet, so it will just come off your Minifigures list (its pieces are already in ${set.name}'s list).`,
     ok: 'Move',
@@ -1450,14 +1484,18 @@ async function moveFigToSet(fig, setNum, { ask = true } = {}) {
   const before = { fig: structuredClone(fig), set: set.parts.map((p) => p.have) };
   const spares = [];
   for (const p of fig.parts) {
-    if (!p.have) continue;
+    const t = take(p);
+    if (!t) continue;
     const target = set.parts.find((x) => x.key === p.key);
-    const moved = target ? Math.min(p.have, target.qty - target.have) : 0;
+    const moved = target ? Math.min(t, target.qty - target.have) : 0;
     if (target) target.have += moved;
     p.have -= moved;
-    if (p.have) spares.push(p);
+    if (t - moved) spares.push({ p, n: t - moved, why: target ? 'found' : 'notneeded' });
   }
-  if (!spares.length) delete state.sets[fig.setNum];
+  if (count > 1) {
+    // One fewer figure, unless pieces that couldn't move need its space as spares.
+    if (fig.parts.every((p) => p.have <= perFig(fig, p) * (count - 1))) setFigCount(fig, count - 1);
+  } else if (!spares.length) delete state.sets[fig.setNum];
   save();
   buzz();
   lastUndo = () => {
@@ -1466,9 +1504,12 @@ async function moveFigToSet(fig, setNum, { ask = true } = {}) {
     save();
     render();
   };
-  if (spares.length) {
-    const n = spares.reduce((t, p) => t + p.have, 0);
-    toast(`Moved to ${set.name}. ${plural(n, 'piece was', 'pieces were')} already found there, so kept here as ${n === 1 ? 'a spare' : 'spares'}.`, true);
+  if (spares.length || count > 1) {
+    const n = spares.reduce((t, x) => t + x.n, 0);
+    if (!n) { toast(`🔁 Moved one ${fig.name} into ${set.name}`, true); render(); return; }
+    const names = spares.map((x) => x.p.name).slice(0, 2).join(', ');
+    const why = spares.every((x) => x.why === 'notneeded') ? "isn't in that set" : spares.every((x) => x.why === 'found') ? 'was already found there' : "wasn't needed there";
+    toast(`Moved to ${set.name}. ${n === 1 ? `1 piece (${names}) ${why}` : `${n} pieces (${names}${spares.length > 2 ? '…' : ''}) ${why.replace('was', 'were').replace("isn't", "aren't").replace("wasn't", "weren't")}`}, so ${n === 1 ? 'it stays' : 'they stay'} with your figure.`, true);
     render();
   } else {
     toast(`🔁 Moved ${fig.name} into ${set.name}`, true);
@@ -1771,13 +1812,26 @@ async function showFigPreview(figNum) {
       ${figSetRows(fig, 3, false)}
       <p></p>
       ${owned
-        ? `<button class="btn primary block" id="figOpen">Open in my minifigures</button>`
+        ? `<p class="muted small center">You have ${owned.count || 1} already.</p>
+           <button class="btn primary block" id="figAnother">＋ Add another</button>
+           <p></p><button class="btn block" id="figOpen">Open in my minifigures</button>`
         : `<button class="btn primary block" id="figAddBtn">＋ Add to my minifigures</button>
            <p class="muted small center">${scanned ? 'The piece you scanned is ticked as found; the rest go on your Looking for list.' : 'Its pieces start as missing, so they show on your Looking for list.'}</p>`}
       <button class="btn block" data-close>Close</button>
     </div>`);
   const open = () => { ui.collection = 'figs'; savePref('collection', 'figs'); ui.setFilter = 'missing'; go('#set/' + encodeURIComponent(fig.setNum)); };
   if ($('#figOpen')) $('#figOpen').onclick = open;
+  if ($('#figAnother')) {
+    $('#figAnother').onclick = () => {
+      const mine = state.sets[fig.setNum];
+      setFigCount(mine, (mine.count || 1) + 1);
+      const sp = scanned && mine.parts.find((p) => p.key === scanned.key);
+      if (sp) sp.have = Math.min(sp.qty, sp.have + 1);
+      save();
+      open();
+      toast(`You now have ${mine.count} ${fig.name}`);
+    };
+  }
   if ($('#figAddBtn')) {
     $('#figAddBtn').onclick = () => {
       fig.addedAt = Date.now();
@@ -1984,6 +2038,16 @@ function renderSet(setNum) {
           ${st.missing ? `<span class="badge miss">${st.missing} ${st.missing === 1 ? 'piece' : 'pieces'} missing</span>` : `<span class="badge ok">Complete ✓</span>`}
           <span class="muted small">${st.have} / ${st.need}</span>
         </div>
+        ${isFig(set) ? `
+        <div class="fig-count">
+          <span class="muted small">How many?</span>
+          <div class="mini-counter">
+            <button id="figLess" aria-label="One fewer">−</button>
+            <span class="count">${set.count || 1}</span>
+            <button id="figMore" aria-label="One more">+</button>
+          </div>
+          ${(set.count || 1) > 1 ? `<span class="muted small">${figsComplete(set)} of ${set.count} complete</span>` : ''}
+        </div>` : ''}
         <button class="btn small value-btn" id="valueBtn">${hasValue(set) ? `💷 ${money(set.value)} · edit` : '💷 Add value'}</button>
       </div>
     </div>
@@ -2087,6 +2151,18 @@ function renderSet(setNum) {
     };
   });
   bindFigSets(set);
+  if ($('#figMore')) {
+    $('#figMore').onclick = () => { setFigCount(set, (set.count || 1) + 1); save(); rerender(); toast(`You now have ${set.count} — their pieces are added to Looking for`); };
+    $('#figLess').onclick = async () => {
+      const n = set.count || 1;
+      if (n === 1) return toast('To remove the figure, use Delete minifigure');
+      const lost = set.parts.reduce((t, p) => t + Math.max(0, p.have - perFig(set, p) * (n - 1)), 0);
+      if (lost && !await askConfirm({ title: `Down to ${n - 1}?`, text: `${plural(lost, 'found piece', 'found pieces')} will be unticked, because ${n - 1 === 1 ? 'one figure' : `${n - 1} figures`} only need${n - 1 === 1 ? 's' : ''} fewer.`, ok: 'Remove one', danger: true })) return;
+      setFigCount(set, n - 1);
+      save();
+      rerender();
+    };
+  }
   document.querySelectorAll('[data-setfig]').forEach((b) => { b.onclick = () => showSetFigSheet(set, Number(b.dataset.setfig), rerender); });
   if ($('#toFig')) $('#toFig').onclick = () => turnIntoFig(set);
   if (!set.figs && !isFig(set)) loadSetFigs(set);
@@ -2097,6 +2173,13 @@ function renderSet(setNum) {
     try {
       toast('Downloading…');
       const fresh = isFig(set) ? await fetchFig(setNum, { refresh: true }) : await fetchSet(setNum, { refresh: true });
+      if (isFig(set)) {
+        // Keep accessories added by hand and how many you have.
+        const extra = set.parts.filter((p) => p.acc && !fresh.parts.some((x) => x.key === p.key));
+        addAccessories(fresh, extra.map((p) => ({ ...p, per: perFig(set, p) })));
+        if (!fresh.pack && set.pack) fresh.pack = set.pack;
+        setFigCount(fresh, set.count || 1);
+      }
       const old = new Map(set.parts.map((p) => [p.key, p.have]));
       fresh.parts.forEach((p) => { p.have = Math.min(p.qty, old.get(p.key) || 0); });
       fresh.addedAt = set.addedAt;
