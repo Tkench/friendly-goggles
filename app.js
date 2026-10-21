@@ -2891,8 +2891,8 @@ function scanArt(cls = 'scan-art') {
 }
 
 const SCAN_TIPS = [
-  ['☝️', 'One piece only', 'Filling most of the photo.'],
-  ['📄', 'Plain background', 'A sheet of white paper is perfect.'],
+  ['☝️', 'One piece only', 'Put a single piece in the photo. It doesn\'t need to fill the frame: the app zooms in on it for you.'],
+  ['📄', 'Plain background', 'A sheet of white paper is perfect, so the piece stands out.'],
   ['💡', 'Good light', 'Daylight is best; avoid strong shadows.'],
   ['🔍', 'Best side up', 'Show the studs, holes or printed side.'],
 ];
@@ -2910,9 +2910,7 @@ function renderScan() {
       <button class="btn primary block hero-cta" id="snap">${scanIcon({ onRed: true, cls: 'scan-ico btn-ico' })} Scan a piece</button>
       <p class="center small hero-login">Know the part number? <a href="#missing">Search your list</a></p>
       <h3 class="steps-title">Tips for a good match</h3>
-      <div class="tips">
-        ${SCAN_TIPS.map(([ico, t, d]) => `<div class="tip"><span class="tip-ico" aria-hidden="true">${ico}</span><b>${t}</b><span>${d}</span></div>`).join('')}
-      </div>`;
+      ${swipeCards('scanTips', SCAN_TIPS)}`;
   } else {
     html += `
       <div class="scan-shot ${scanState.loading ? 'scanning' : ''}">
@@ -2931,6 +2929,7 @@ function renderScan() {
   }
   $('#view').innerHTML = html;
   if ($('#snap')) $('#snap').onclick = () => $('#cameraInput').click();
+  bindSwipeCards('scanTips');
   bindScanResultButtons();
 }
 
