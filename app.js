@@ -1876,8 +1876,23 @@ function figLegsIcon(cls = 'step-svg') {
   </svg>`;
 }
 
+// A minifigure torso with arms, hands and a printed design, for the torso tip.
+function figTorsoIcon(cls = 'step-svg') {
+  const [r, re] = BRICK_COLOURS.r, [y, ye] = BRICK_COLOURS.y;
+  return `<svg class="${cls}" viewBox="0 0 48 46" aria-hidden="true">
+    <rect x="19" y="3" width="10" height="5" rx="1" fill="${y}" stroke="${ye}" stroke-width="1.4"/>
+    <rect x="4" y="9" width="8" height="22" rx="4" transform="rotate(14 8 20)" fill="${r}" stroke="${re}" stroke-width="1.5"/>
+    <rect x="36" y="9" width="8" height="22" rx="4" transform="rotate(-14 40 20)" fill="${r}" stroke="${re}" stroke-width="1.5"/>
+    <circle cx="6.5" cy="33" r="4" fill="${y}" stroke="${ye}" stroke-width="1.4"/><circle cx="41.5" cy="33" r="4" fill="${y}" stroke="${ye}" stroke-width="1.4"/>
+    <path d="M14 7.5 H34 L37 40 H11 Z" fill="${r}" stroke="${re}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M24 13 L31 21 L24 32 L17 21 Z" fill="#f6c31b" stroke="#c99a06" stroke-width="1.2"/>
+    <circle cx="24" cy="22" r="2.6" fill="#fff"/>
+    <rect x="16" y="10" width="16" height="2" rx="1" fill="#fff" opacity=".3"/>
+  </svg>`;
+}
+
 const FIG_TIPS = [
-  ['👕', 'Printed torsos work best', 'A torso with a design usually points to just one or two figures.'],
+  [figTorsoIcon(), 'Printed torsos work best', 'A torso with a design usually points to just one or two figures.'],
   [emptyFig('step-svg'), 'Whole figure? Face the front', 'Stand it up on white paper, with its face and torso showing.'],
   [figLegsIcon(), 'Legs: two colours', "Pick the legs colour, then the hips (the top part). Plain legs are in hundreds of figures, so you'll narrow it down next."],
   ['🔎', 'Lots of matches?', 'Type part of a name, like “knight” or “police”, to narrow the list.'],
