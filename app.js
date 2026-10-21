@@ -1797,17 +1797,29 @@ function figTiles(list) {
 
 const FIG_SHOW_MAX = 40;
 
+// Top of the Add a minifigure page: the drawing until you take a photo, then
+// your photo (with a scanning line while it's being looked at), as on the Scan page.
+function renderFigTop() {
+  const a = figAdd;
+  if (!a.photoUrl) {
+    return `
+    <section class="hero fig-hero">
+      ${emptyFig('fig-art')}
+      <h2 class="hero-title">Got a minifigure?<br><span class="accent">Find out who it is.</span></h2>
+      <p class="hero-sub">Scan the whole figure, or just one piece (like the legs), to see which figures it could belong to.</p>
+    </section>`;
+  }
+  return `
+    <div class="scan-shot ${a.loading ? 'scanning' : ''}">
+      <img src="${esc(a.photoUrl)}" alt="Your photo">
+      <span class="vf tl"></span><span class="vf tr"></span><span class="vf br"></span><span class="vf bl"></span>
+      ${a.loading ? '<span class="shot-line"></span>' : ''}
+    </div>`;
+}
+
 function renderFigOut() {
   const a = figAdd;
   let h = '';
-  if (a.photoUrl) {
-    h += `
-      <div class="scan-shot small-shot ${a.loading ? 'scanning' : ''}">
-        <img src="${esc(a.photoUrl)}" alt="Your photo">
-        <span class="vf tl"></span><span class="vf tr"></span><span class="vf br"></span><span class="vf bl"></span>
-        ${a.loading ? '<span class="shot-line"></span>' : ''}
-      </div>`;
-  }
   if (a.loading) return h + `<p class="center scan-status">${esc(a.loading)}</p>`;
   if (a.error) {
     return h + `<div class="verdict-card no"><span class="verdict-ico">${a.errorIcon || '⚠️'}</span><div><b>${esc(a.errorTitle || 'Something went wrong')}</b><span>${esc(a.error)}</span></div></div>`;
@@ -1902,16 +1914,13 @@ const FIG_TIPS = [
 function renderAddFig() {
   setTitle('Add a minifigure');
   $('#view').innerHTML = `
-    <section class="hero fig-hero">
-      ${emptyFig('fig-art')}
-      <h2 class="hero-title">Got a minifigure?<br><span class="accent">Find out who it is.</span></h2>
-      <p class="hero-sub">Scan the whole figure, or just one piece (like the legs), to see which figures it could belong to.</p>
-    </section>
+    <div id="figTop">${renderFigTop()}</div>
+    <div id="figOut">${renderFigOut()}</div>
+    <h3 class="steps-title ${figAdd.photoUrl ? '' : 'hidden'}" id="scanAgainTitle">Scan something else</h3>
     <div class="scan-opts">
       <button class="scan-opt" id="scanFig"><span class="opt-ico">${scanFigIcon()}</span><b>Scan whole figure</b><span>Stand it up on plain paper</span></button>
       <button class="scan-opt" id="scanPiece"><span class="opt-ico">${scanHeadIcon()}</span><b>Scan one piece</b><span>Legs, torso, head…</span></button>
     </div>
-    <div id="figOut">${renderFigOut()}</div>
     <h3 class="steps-title">Tips for a good match</h3>
     ${swipeCards('figTips', FIG_TIPS)}`;
   bindAddFig();
@@ -1920,9 +1929,11 @@ function renderAddFig() {
 
 function refreshFigOut({ scroll = false } = {}) {
   if (route().name !== 'addfig') return;
+  $('#figTop').innerHTML = renderFigTop();
   $('#figOut').innerHTML = renderFigOut();
+  $('#scanAgainTitle').classList.toggle('hidden', !figAdd.photoUrl);
   bindAddFig();
-  if (scroll) $('#figOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function figStep(loadingText, work) {
@@ -1952,7 +1963,7 @@ function bindAddFig() {
         figStep('Finding this figure…', async () => {
           const data = await helperGet(`figfind=${encodeURIComponent(g.id)}&name=${encodeURIComponent(g.name)}`);
           if (!data.results.length) return noFigs("Couldn't find that figure", 'Try another match, or search by name above.');
-          if (data.results.length === 1) { figAdd.step = 'guesses'; showFigPreview(data.results[0].set_num); return; }
+          if (data.results.length === 1) { figAdd.step = 'guesses'; showFigPreview(data.results[0].set_num, data.results[0].set_img_url || g.img_url); return; }
           Object.assign(figAdd, { step: 'results', results: data.results, resultsTitle: 'Which one is yours?', resultsHint: null, back: 'guesses', filter: '' });
         });
         return;
@@ -2017,7 +2028,7 @@ function bindAddFig() {
       again.setSelectionRange(pos, pos);
     };
   }
-  document.querySelectorAll('[data-fig]').forEach((el) => { el.onclick = () => showFigPreview(el.dataset.fig); });
+  document.querySelectorAll('[data-fig]').forEach((el) => { el.onclick = () => showFigPreview(el.dataset.fig, el.querySelector('img')?.getAttribute('src') || ''); });
 }
 
 /* Legs: scanners call plain legs 970c00 in any colour, but Rebrickable numbers
@@ -2108,8 +2119,8 @@ async function pickColour(colourId) {
 }
 
 // Details of one figure before adding it: its pieces and the sets it came in.
-async function showFigPreview(figNum) {
-  openSheet(`<div class="spinner"></div><p class="center muted">Loading minifigure…</p>`);
+async function showFigPreview(figNum, picture = '') {
+  openSheet(`<button class="sheet-x" data-close aria-label="Close">✕</button><div class="spinner"></div><p class="center muted">Loading minifigure…</p>`);
   let fig;
   try {
     fig = await fetchFig(figNum);
@@ -2118,6 +2129,7 @@ async function showFigPreview(figNum) {
     return;
   }
   if ($('#sheet').classList.contains('hidden')) return; // closed while loading
+  if (!fig.img && picture) fig.img = picture; // Rebrickable's photo of the figure
   const owned = state.sets[fig.setNum];
   const sc = figAdd.scanned;
   const legsRe = sc && sc.legs ? new RegExp('^Hips and ' + sc.legs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' Legs\\b') : null;
@@ -2125,6 +2137,7 @@ async function showFigPreview(figNum) {
   const pieces = fig.parts.reduce((t, p) => t + p.qty, 0);
   openSheet(`
     <div class="fig-preview">
+      <button class="sheet-x" data-close aria-label="Close">✕</button>
       <div class="big-pic">${fig.img ? `<img src="${esc(fig.img)}" alt="">` : emptyFig()}</div>
       <h2>${esc(fig.name)}</h2>
       <div class="muted small">#${esc(fig.setNum)} · ${plural(pieces, 'piece', 'pieces')}</div>
