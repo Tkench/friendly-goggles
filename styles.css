@@ -643,3 +643,10 @@ body.welcome .topbar {
 .gate-card .row { flex-direction: row-reverse; }
 .gate-card #registerBtn { background: var(--brand); color: var(--brand-ink); }
 .gate-card #loginBtn { background: var(--chip); color: var(--text); }
+/* Report a problem */
+.report textarea.field { resize: vertical; min-height: 96px; font: inherit; }
+.report .agree { margin: 10px 0 4px; }
+.rep-details { margin: 12px 0; }
+.rep-details ul { padding-left: 18px; margin: 6px 0 0; word-break: break-word; }
+.report-link { margin: 6px 0 10px; }
+.report-link .link-btn { color: var(--muted); font-weight: 600; font-size: 14px; }

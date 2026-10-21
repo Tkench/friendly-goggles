@@ -1930,6 +1930,13 @@ function renderFigTop() {
 }
 
 function renderFigOut() {
+  const h = renderFigOutInner();
+  const a = figAdd;
+  const showLink = syncEnabled() && a.photoUrl && !a.loading && (a.step || a.error);
+  return h + (showLink ? reportLink('data-report-fig') : '');
+}
+
+function renderFigOutInner() {
   const a = figAdd;
   let h = '';
   if (a.loading) return h + `<p class="center scan-status">${esc(a.loading)}</p>`;
@@ -2065,6 +2072,12 @@ function noFigs(title, text) {
 }
 
 function bindAddFig() {
+  document.querySelectorAll('[data-report-fig]').forEach((b) => {
+    b.onclick = () => showReportSheet({
+      kind: 'minifig', title: 'Wrong match?', context: figReportContext(), photoUrl: figAdd.photoUrl,
+      intro: "Tell us which figure or piece it really is (if you know). We'll include what the scanner guessed and what the app showed you.",
+    });
+  });
   if ($('#scanFig')) $('#scanFig').onclick = () => { figAdd.scanKind = 'fig'; $('#figCameraInput').click(); };
   if ($('#scanPiece')) $('#scanPiece').onclick = () => { figAdd.scanKind = 'piece'; $('#figCameraInput').click(); };
 
@@ -2292,7 +2305,14 @@ async function showFigPreview(figNum, picture = '') {
         : `<button class="btn primary block" id="figAddBtn">＋ Add to my minifigures</button>
            <p class="muted small center">${scanned ? 'The piece you scanned is ticked as found; the rest go on your Looking for list.' : 'Its pieces start as missing, so they show on your Looking for list.'}</p>`}
       <button class="btn block" data-close>Close</button>
+      ${syncEnabled() && figAdd.photoUrl ? reportLink('id="reportFigPreview"', 'Not the right figure? Tell us') : ''}
     </div>`);
+  if ($('#reportFigPreview')) {
+    $('#reportFigPreview').onclick = () => showReportSheet({
+      kind: 'minifig', title: 'Not the right figure?', context: figReportContext(`${fig.setNum} ${fig.name}`), photoUrl: figAdd.photoUrl,
+      intro: "Tell us which figure it really is (if you know). We'll include what the scanner guessed and what the app showed you.",
+    });
+  }
   const open = () => { ui.collection = 'figs'; savePref('collection', 'figs'); ui.setFilter = 'missing'; go('#set/' + encodeURIComponent(fig.setNum)); };
   if ($('#figOpen')) $('#figOpen').onclick = open;
   if ($('#figAnother')) {
@@ -3055,11 +3075,18 @@ function renderScan() {
     } else {
       html += renderScanResults(scanState.items);
     }
+    if (!scanState.loading && syncEnabled()) html += reportLink('id="reportScan"');
     if (!scanState.loading) html += `<button class="btn primary block hero-cta scan-again" id="snap">${scanIcon({ onRed: true, cls: 'scan-ico btn-ico' })} Scan another piece</button>`;
   }
   $('#view').innerHTML = html;
   if ($('#snap')) $('#snap').onclick = () => $('#cameraInput').click();
   bindSwipeCards('scanTips');
+  if ($('#reportScan')) {
+    $('#reportScan').onclick = () => showReportSheet({
+      kind: 'scan', title: 'Wrong match?', context: scanReportContext(), photoUrl: scanState?.photoUrl,
+      intro: "Tell us what the piece really is (if you know) and we'll use it to improve scanning. We'll include what the scanner guessed.",
+    });
+  }
   bindScanResultButtons();
 }
 
@@ -3137,6 +3164,97 @@ $('#cameraInput').addEventListener('change', async (e) => {
   if (route().name === 'scan') renderScan();
 });
 
+/* ---------- Report a problem ----------
+ * Reports go to the "reports" table in Supabase (supabase/reports.sql) with
+ * what the app knew at the time, so wrong matches can be looked into. */
+
+const pct = (x) => Math.round((x || 0) * 100);
+
+function scanReportContext() {
+  return {
+    page: 'Scan',
+    scannerGuesses: (scanState?.items || []).slice(0, 4).map((i) => ({ id: i.id, name: i.name, sure: pct(i.score) + '%' })),
+  };
+}
+
+function figReportContext(figNum) {
+  const a = figAdd;
+  return {
+    page: 'Add a minifigure',
+    scanned: a.scanKind === 'fig' ? 'whole figure' : a.scanKind === 'piece' ? 'one piece' : undefined,
+    scannerGuesses: (a.guesses || []).slice(0, 4).map((i) => ({ id: i.id, name: i.name, sure: pct(i.score) + '%' })),
+    piece: a.part ? `${a.part.name} (${a.part.num})` : undefined,
+    legsColour: a.legsColour,
+    shown: a.step === 'results' ? (a.results || []).slice(0, 10).map((f) => `${f.set_num} ${f.name}`) : undefined,
+    narrowedBy: a.filter || undefined,
+    figureOpened: figNum,
+  };
+}
+
+// A small copy of the scan photo, if they choose to include it.
+async function smallPhoto(url) {
+  const img = await new Promise((resolve) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => resolve(null); i.src = url; });
+  if (!img) return null;
+  const scale = Math.min(1, 480 / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.naturalWidth * scale);
+  c.height = Math.round(img.naturalHeight * scale);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.7);
+}
+
+const REPORT_LABELS = {
+  page: 'Page', scanned: 'Scanned', scannerGuesses: 'Scanner guessed', piece: 'Piece looked up',
+  legsColour: 'Legs colour', shown: 'Figures shown', narrowedBy: 'Narrowed down by', figureOpened: 'Figure opened',
+};
+
+function showReportSheet({ kind, title, intro, context = {}, photoUrl = '' }) {
+  const ctx = { ...context, screen: `${innerWidth}×${innerHeight}`, browser: navigator.userAgent.slice(0, 160) };
+  const lines = Object.entries(context).filter(([, v]) => v !== undefined && v !== '' && !(Array.isArray(v) && !v.length))
+    .map(([k, v]) => `${REPORT_LABELS[k] || k}: ${Array.isArray(v) ? v.map((x) => (typeof x === 'object' ? `${x.name} (${x.id}, ${x.sure})` : x)).join('; ') : v}`);
+  openSheet(`
+    <div class="report">
+      <button class="sheet-x" data-close aria-label="Close">✕</button>
+      <h2>${esc(title)}</h2>
+      <p class="muted small">${esc(intro)}</p>
+      <textarea class="field" id="repMsg" rows="4" maxlength="2000" placeholder="${kind === 'general' ? 'What happened?' : 'e.g. It\'s actually Awesome Remix Emmet'}"></textarea>
+      ${photoUrl ? `<label class="agree small"><input type="checkbox" id="repPhoto"><span>Include my photo (a small copy)</span></label>` : ''}
+      <label class="lbl" for="repEmail">Email me a reply <span class="muted">(optional)</span></label>
+      <input class="field" id="repEmail" type="email" autocomplete="email" autocapitalize="off" placeholder="you@example.com" value="${esc(session?.email || '')}">
+      ${lines.length ? `<details class="rep-details small muted"><summary>What's sent with it</summary><ul>${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></details>` : ''}
+      <button class="btn primary block" id="repSend">Send report</button>
+      <p class="muted small center">See our <a href="privacy.html">Privacy Policy</a>.</p>
+    </div>`);
+  $('#repSend').onclick = async () => {
+    const message = $('#repMsg').value.trim();
+    const contact = $('#repEmail').value.trim();
+    if (kind === 'general' && !message) return toast('Tell us what happened first');
+    if (contact && !/^\S+@\S+\.\S+$/.test(contact)) return toast('Check the email address');
+    const btn = $('#repSend');
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      const photo = photoUrl && $('#repPhoto')?.checked ? await smallPhoto(photoUrl) : null;
+      await sbFetch('/rest/v1/reports', {
+        method: 'POST', auth: !!session, headers: { Prefer: 'return=minimal' },
+        body: { kind, message: message || null, contact: contact || null, context: ctx, photo },
+      });
+      openSheet(`
+        <div class="report center">
+          <h2>✅ Thanks for letting us know</h2>
+          <p class="muted">${contact ? "We'll look into it and reply by email." : "We'll look into it."}</p>
+          <button class="btn primary block" data-close>Done</button>
+        </div>`);
+    } catch (e) {
+      toast("Couldn't send the report: " + e.message);
+      btn.disabled = false;
+      btn.textContent = 'Send report';
+    }
+  };
+}
+
+const reportLink = (id, text = 'Wrong match? Tell us') => `<p class="center report-link"><button class="link-btn" ${id}>⚑ ${text}</button></p>`;
+
 /* ---------- Settings ---------- */
 
 function renderSettings() {
@@ -3172,6 +3290,11 @@ function renderSettings() {
       <p class="muted small">Last Brick is free. If it's helped you finish a set, you can say thanks with a small tip.</p>
       <a class="btn primary block" href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a>
     </div>` : ''}
+    ${syncEnabled() ? `<div class="card">
+      <h2>⚑ Report a problem</h2>
+      <p class="muted small">Something not working, or a scan got it wrong? Let us know.</p>
+      <button class="btn block" id="reportGeneral">Report a problem</button>
+    </div>` : ''}
     <div class="card small muted">
       <h2 style="color:var(--text)">About</h2>
       <p>Parts lists and pictures: <a href="https://rebrickable.com" target="_blank" rel="noopener">Rebrickable</a>. Piece recognition: <a href="https://brickognize.com" target="_blank" rel="noopener">Brickognize</a>. LEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this app.</p>
@@ -3182,6 +3305,12 @@ function renderSettings() {
     toast(state.apiKey ? 'Key saved' : 'Key removed');
   };
   renderAccountCard();
+  if ($('#reportGeneral')) {
+    $('#reportGeneral').onclick = () => showReportSheet({
+      kind: 'general', title: 'Report a problem', context: { page: 'Settings' },
+      intro: 'Tell us what happened and, if you can, what you were doing at the time.',
+    });
+  }
   $('#exportBtn').onclick = () => {
     const blob = new Blob([JSON.stringify({ app: 'lastbrick', version: 1, exportedAt: new Date().toISOString(), sets: state.sets }, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');

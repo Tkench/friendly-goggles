@@ -30,6 +30,10 @@ Parts lists come from [Rebrickable](https://rebrickable.com). The app gets them 
 
 Until the function is deployed, the app falls back to a personal Rebrickable key entered under Settings → Advanced.
 
+## Problem reports
+
+"Wrong match? Tell us" (after a scan) and Settings → **Report a problem** save reports to a `reports` table, with what the scanner guessed and what the app showed. Run [`supabase/reports.sql`](supabase/reports.sql) in the SQL Editor once; reports then appear under **Table Editor → reports**. Anyone can send a report, but nobody can read them through the app.
+
 ## Login, backup and sync (optional)
 
 Accounts use [Supabase](https://supabase.com) (free plan). Until it's set up the app works exactly as before, with everything stored on the phone.
