@@ -861,6 +861,21 @@ function scanIcon({ onRed = false, cls = 'scan-ico' } = {}) {
   </svg>`;
 }
 
+// A whole minifigure inside the scan corners, for "Scan whole figure".
+function scanFigIcon(cls = 'scan-ico') {
+  const [y, ye] = BRICK_COLOURS.y, [r, re] = BRICK_COLOURS.r, [b, be] = BRICK_COLOURS.b;
+  const c = (d) => `<path d="${d}" fill="none" stroke="var(--brand)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return `<svg class="${cls}" viewBox="0 0 28 26" aria-hidden="true">
+    ${c('M2.5 8 V3 H7.5')}${c('M20.5 3 H25.5 V8')}${c('M25.5 18 V23 H20.5')}${c('M7.5 23 H2.5 V18')}
+    <rect x="11.6" y="3" width="4.8" height="4.6" rx="1.6" fill="${y}" stroke="${ye}" stroke-width=".7"/>
+    <path d="M10.6 8 H17.4 L18.4 14.4 H9.6 Z" fill="${r}" stroke="${re}" stroke-width=".7" stroke-linejoin="round"/>
+    <rect x="9.6" y="14.3" width="8.8" height="1.8" rx=".4" fill="${b}" stroke="${be}" stroke-width=".6"/>
+    <rect x="9.8" y="15.9" width="4" height="6" rx=".5" fill="${b}" stroke="${be}" stroke-width=".6"/>
+    <rect x="14.2" y="15.9" width="4" height="6" rx=".5" fill="${b}" stroke="${be}" stroke-width=".6"/>
+    <rect x="4.5" y="12.4" width="19" height="1.9" rx=".95" fill="var(--brand)" stroke="#fff" stroke-width=".6"/>
+  </svg>`;
+}
+
 function renderWelcome() {
   setWelcomeHeader();
   $('#view').innerHTML = `
@@ -1852,7 +1867,7 @@ function renderAddFig() {
       <p class="hero-sub">Scan the whole figure, or just one piece (like the legs), to see which figures it could belong to.</p>
     </section>
     <div class="scan-opts">
-      <button class="scan-opt" id="scanFig"><span class="opt-ico">${figIcon()}</span><b>Scan whole figure</b><span>Stand it up on plain paper</span></button>
+      <button class="scan-opt" id="scanFig"><span class="opt-ico">${scanFigIcon()}</span><b>Scan whole figure</b><span>Stand it up on plain paper</span></button>
       <button class="scan-opt" id="scanPiece"><span class="opt-ico">${scanIcon()}</span><b>Scan one piece</b><span>Legs, torso, head…</span></button>
     </div>
     <div id="figOut">${renderFigOut()}</div>

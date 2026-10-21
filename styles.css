@@ -602,3 +602,5 @@ body.welcome .topbar {
 .scan-ico { width: 30px; height: 28px; display: block; overflow: visible; }
 .scan-ico.big { width: 46px; height: 42px; }
 .scan-ico.btn-ico { display: inline-block; width: 26px; height: 24px; vertical-align: -6px; margin-right: 4px; }
+.scan-opt .opt-ico { height: 46px; }
+.scan-opt .opt-ico .scan-ico { width: 50px; height: 46px; }
