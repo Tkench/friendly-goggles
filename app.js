@@ -582,31 +582,62 @@ const NAME_SKIP = new Set(['with', 'and', 'the', 'of', 'a', 'an', 'in', 'on', 'm
   'only', 'without', 'stand', 'accessories', 'complete', 'set', 'lego', 'series', 'collectible', 'collectable']);
 const nameWords = (s) => String(s).toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => w.length > 1 && !NAME_SKIP.has(w));
 
-// How many of the scanner's words appear in a figure's name (whole words, or
-// one starting the other like "pirate"/"pirates" — so "trucker" ≠ "Strucker").
+// Words that mean the same in BrickLink's and Rebrickable's names.
+const NAME_SAME = [
+  ['burglar', 'crook', 'robber', 'thief', 'bandit', 'criminal'],
+  ['gray', 'grey'], ['cap', 'hat', 'beanie'], ['knit', 'knitted'], ['moustache', 'mustache'],
+  ['policeman', 'policewoman', 'police', 'officer', 'cop'], ['fireman', 'firefighter', 'firewoman'],
+  ['spaceman', 'astronaut'], ['armour', 'armor'], ['colour', 'color'],
+];
+const SAME_AS = new Map(NAME_SAME.flatMap((group) => group.map((w) => [w, group[0]])));
+const canon = (w) => SAME_AS.get(w) || w;
+const wordMatch = (w, h) => w === h || (w.length > 3 && h.length > 3 && (h.startsWith(w) || w.startsWith(h)));
+
+// How rare each word is among all figure names: rare words ("burglar", "mask")
+// say much more about a figure than common ones ("dark", "gray", "legs").
+let wordRarity = null;
+function rarityOf(all) {
+  if (!wordRarity) {
+    const seen = new Map();
+    for (const [, figName] of all) for (const w of new Set(nameWords(figName).map(canon))) seen.set(w, (seen.get(w) || 0) + 1);
+    wordRarity = { seen, total: all.length };
+  }
+  return (w) => Math.log((wordRarity.total + 1) / ((wordRarity.seen.get(w) || 0) + 1));
+}
+
+// The scanner's words with how much each counts. BrickLink starts many names with
+// a category ("Police - City Burglar"), which counts for much less.
+function scannerWords(name, rarity) {
+  const dash = name.indexOf(' - ');
+  const category = dash > 0 ? new Set(nameWords(name.slice(0, dash)).map(canon)) : new Set();
+  const words = [...new Set(nameWords(name).map(canon))];
+  return words.map((w) => ({ w, weight: rarity(w) * (category.has(w) ? 0.25 : 1) }));
+}
+
 function nameScore(want, figName) {
-  const have = nameWords(figName);
+  const have = nameWords(figName).map(canon);
   let score = 0;
-  for (const w of want) if (have.some((h) => h === w || (w.length > 3 && h.length > 3 && (h.startsWith(w) || w.startsWith(h))))) score++;
+  for (const { w, weight } of want) if (have.some((h) => wordMatch(w, h))) score += weight;
   return score;
 }
 
 async function figsByName(name, max = 40) {
   const all = await figIndexFile('figs.json');
-  const want = nameWords(name);
-  if (!all || !want.length) return [];
+  if (!all) return [];
+  const want = scannerWords(name, rarityOf(all));
+  if (!want.length) return [];
   const scored = [];
   for (const [num, figName, img] of all) {
     const score = nameScore(want, figName);
-    if (score) scored.push({ score, num, figName, img });
+    if (score > 0) scored.push({ score, num, figName, img });
   }
   if (!scored.length) return [];
   const best = Math.max(...scored.map((x) => x.score));
   return scored
-    .filter((x) => x.score >= Math.max(1, best - 1))
+    .filter((x) => x.score >= best * 0.45)
     .sort((a, b) => b.score - a.score || a.figName.length - b.figName.length)
     .slice(0, max)
-    .map((x) => ({ set_num: x.num, name: x.figName, set_img_url: x.img ? RB_MEDIA + x.img : '', score: x.score / want.length }));
+    .map((x) => ({ set_num: x.num, name: x.figName, set_img_url: x.img ? RB_MEDIA + x.img : '', score: x.score }));
 }
 
 const figCache = new Map(); // figures looked at on the Add page, so adding doesn't download again
@@ -2092,7 +2123,8 @@ function bindAddFig() {
           try { found = (await helperGet(`figfind=${encodeURIComponent(g.id)}&name=${encodeURIComponent(g.name)}`)).results || []; } catch { /* use the name match */ }
           // Rebrickable's search matches parts of words ("Trucker" finds "Strucker"),
           // so keep only its results that share whole words with the scanner's name.
-          const want = nameWords(g.name);
+          const allFigs = await figIndexFile('figs.json');
+          const want = allFigs ? scannerWords(g.name, rarityOf(allFigs)) : nameWords(g.name).map((w) => ({ w: canon(w), weight: 1 }));
           found = found.filter((f) => f.exact || nameScore(want, f.name) > 0);
           const seen = new Set(found.map((f) => f.set_num));
           const byName = (await figsByName(g.name)).filter((f) => !seen.has(f.set_num));
