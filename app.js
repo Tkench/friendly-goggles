@@ -1377,7 +1377,10 @@ function renderSets() {
   }
   $('#view').innerHTML = html;
   // Minifigures can still be scanned without an account; the check happens when adding.
-  $('#addBtn').onclick = () => { if (figs || accountGate(() => go('#add'))) go(figs ? '#addfig' : '#add'); };
+  $('#addBtn').onclick = () => {
+    if (figs) { resetFigAdd(); go('#addfig'); return; }
+    if (accountGate(() => go('#add'))) go('#add');
+  };
   bindFigHints(renderSets);
   document.querySelectorAll('#collection button').forEach((b) => {
     b.onclick = () => { ui.collection = b.dataset.c; ui.setSearch = ''; savePref('collection', b.dataset.c); renderSets(); };
@@ -1957,7 +1960,18 @@ function renderFigTop() {
       <img src="${esc(a.photoUrl)}" alt="Your photo">
       <span class="vf tl"></span><span class="vf tr"></span><span class="vf br"></span><span class="vf bl"></span>
       ${a.loading ? '<span class="shot-line"></span>' : ''}
-    </div>`;
+    </div>
+    ${a.loading ? '' : `
+    <div class="rescan-row">
+      <button class="btn small" data-rescan="fig">${scanFigIcon('scan-ico btn-ico')} Scan a figure</button>
+      <button class="btn small" data-rescan="piece">${scanHeadIcon('scan-ico btn-ico')} Scan a piece</button>
+    </div>`}`;
+}
+
+// Back to the start of the Add a minifigure page (no photo or results).
+function resetFigAdd() {
+  if (figAdd.photoUrl) URL.revokeObjectURL(figAdd.photoUrl);
+  figAdd = {};
 }
 
 function renderFigOut() {
@@ -2075,8 +2089,7 @@ function renderAddFig() {
   $('#view').innerHTML = `
     <div id="figTop">${renderFigTop()}</div>
     <div id="figOut">${renderFigOut()}</div>
-    <h3 class="steps-title ${figAdd.photoUrl ? '' : 'hidden'}" id="scanAgainTitle">Scan something else</h3>
-    <div class="scan-opts">
+    <div class="scan-opts ${figAdd.photoUrl ? 'hidden' : ''}" id="scanOpts">
       <button class="scan-opt" id="scanFig"><span class="opt-ico">${scanFigIcon()}</span><b>Scan whole figure</b><span>Stand it up on plain paper</span></button>
       <button class="scan-opt" id="scanPiece"><span class="opt-ico">${scanHeadIcon()}</span><b>Scan one piece</b><span>Legs, torso, head…</span></button>
     </div>
@@ -2090,7 +2103,7 @@ function refreshFigOut({ scroll = false } = {}) {
   if (route().name !== 'addfig') return;
   $('#figTop').innerHTML = renderFigTop();
   $('#figOut').innerHTML = renderFigOut();
-  $('#scanAgainTitle').classList.toggle('hidden', !figAdd.photoUrl);
+  $('#scanOpts').classList.toggle('hidden', !!figAdd.photoUrl);
   bindAddFig();
   if (scroll) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -2119,6 +2132,7 @@ function bindAddFig() {
     });
   });
   if ($('#scanFig')) $('#scanFig').onclick = () => { figAdd.scanKind = 'fig'; $('#figCameraInput').click(); };
+  document.querySelectorAll('[data-rescan]').forEach((b) => { b.onclick = () => { figAdd.scanKind = b.dataset.rescan; $('#figCameraInput').click(); }; });
   if ($('#scanTorso')) $('#scanTorso').onclick = () => { figAdd.scanKind = 'piece'; $('#figCameraInput').click(); };
   if ($('#scanPiece')) $('#scanPiece').onclick = () => { figAdd.scanKind = 'piece'; $('#figCameraInput').click(); };
 

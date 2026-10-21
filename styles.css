@@ -656,3 +656,7 @@ body.welcome .topbar {
 .torso-tip span:not(.torso-ico) { color: var(--muted); font-size: 14px; }
 .torso-svg { width: 46px; height: 44px; display: block; }
 .torso-tip .btn { flex: none; }
+/* Scan again buttons right under the photo on Add a minifigure */
+.rescan-row { display: flex; gap: 8px; margin: -4px 0 10px; }
+.rescan-row .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.rescan-row .scan-ico.btn-ico { width: 24px; height: 22px; margin-right: 2px; vertical-align: middle; }
