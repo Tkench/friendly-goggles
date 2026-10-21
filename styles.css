@@ -599,3 +599,6 @@ body.welcome .topbar {
 .loose-figs { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--ok-bg); border-radius: 12px; padding: 8px 10px; margin-bottom: 10px; font-size: 14px; }
 .loose-figs .btn { flex: none; }
 .colour-opt em { font-style: normal; font-size: 12px; }
+.scan-ico { width: 30px; height: 28px; display: block; overflow: visible; }
+.scan-ico.big { width: 46px; height: 42px; }
+.scan-ico.btn-ico { display: inline-block; width: 26px; height: 24px; vertical-align: -6px; margin-right: 4px; }

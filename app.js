@@ -27,7 +27,7 @@ let state = load();
 let ui = { setFilter: 'missing', missingColor: '', setSearch: '', missingView: loadPref('missingView2', 'list'), missingSort: loadPref('missingSort', 'colour'), missingType: '', setSort: loadPref('setSort', 'closest'), setView: loadPref('setView', 'grid'), setsShow: loadPref('setsShow', 'all'), collection: loadPref('collection', 'sets'), partView: loadPref('partView', 'grid'), partSort: loadPref('partSort', 'colour'), partColor: '', partType: '', partSetNum: '' };
 let lastUndo = null;
 let scanState = null; // { photoUrl, loading, error, items }
-let figAdd = { q: '' }; // the Add a minifigure page (search and scans)
+let figAdd = {}; // the Add a minifigure page (scans and their results)
 
 function load() {
   let s = { apiKey: '', sets: {} };
@@ -826,6 +826,41 @@ function setWelcomeHeaderArt() {
   return `${brandArt({ cls: 'logo-mark' })}<span class="wordmark"><span>Last</span> <span class="brick">Brick</span></span>`;
 }
 
+// Sideways-swipe cards with dots, as on the welcome page. items: [icon html, title, text]
+function swipeCards(id, items) {
+  return `
+    <ol class="steps" id="${id}">
+      ${items.map(([ico, t, d], i) => `<li><span class="step-ico" aria-hidden="true">${ico}</span><span class="step-n">${String(i + 1).padStart(2, '0')} /</span><b>${t}</b><span class="step-text">${d}</span></li>`).join('')}
+    </ol>
+    <div class="step-dots" id="${id}Dots" aria-hidden="true">${items.map((_, i) => `<span class="${i ? '' : 'on'}"></span>`).join('')}</div>`;
+}
+
+function bindSwipeCards(id) {
+  const list = $('#' + id);
+  if (!list) return;
+  list.addEventListener('scroll', () => {
+    const cards = [...list.children];
+    const mid = list.scrollLeft + list.clientWidth / 2;
+    const i = cards.reduce((best, c, n) => (Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid) < Math.abs(cards[best].offsetLeft + cards[best].offsetWidth / 2 - mid) ? n : best), 0);
+    [...$('#' + id + 'Dots').children].forEach((d, n) => d.classList.toggle('on', n === i));
+  }, { passive: true });
+}
+
+// Small version of the Scan page picture: the red brick in camera corners with
+// a scanning line across it. onRed swaps to white for red buttons.
+function scanIcon({ onRed = false, cls = 'scan-ico' } = {}) {
+  const [f, e] = onRed ? ['#ffffff', '#ffd2d2'] : BRICK_COLOURS.r;
+  const corner = onRed ? '#ffffff' : 'var(--brand)';
+  const line = onRed ? '#f6c31b' : 'var(--brand)';
+  const c = (d) => `<path d="${d}" fill="none" stroke="${corner}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return `<svg class="${cls}" viewBox="0 0 28 26" aria-hidden="true">
+    ${c('M2.5 8 V3 H7.5')}${c('M20.5 3 H25.5 V8')}${c('M25.5 18 V23 H20.5')}${c('M7.5 23 H2.5 V18')}
+    ${[0, 1, 2].map((i) => `<rect x="${8.2 + i * 4.3}" y="7.6" width="2.8" height="2.2" rx=".7" fill="${f}" stroke="${e}" stroke-width=".8"/>`).join('')}
+    <rect x="7" y="9.4" width="14" height="8.6" rx="1.4" fill="${f}" stroke="${e}" stroke-width="1"/>
+    <rect x="4.5" y="12.4" width="19" height="1.9" rx=".95" fill="${line}" stroke="#fff" stroke-width="${onRed ? 0 : 0.6}"/>
+  </svg>`;
+}
+
 function renderWelcome() {
   setWelcomeHeader();
   $('#view').innerHTML = `
@@ -848,23 +883,16 @@ function renderWelcome() {
     <button class="btn primary block hero-cta" id="startBtn">Get started for free</button>`}
     ${syncEnabled() ? `<p class="center small hero-login">Already have an account? <a href="#settings">Log in</a></p>` : ''}
     <h3 class="steps-title">How it works</h3>
-    <ol class="steps" id="steps">
-      <li><span class="step-ico" aria-hidden="true">📖</span><span class="step-n">01 /</span><b>Add your sets</b><span class="step-text">Type the number from the box or manual and the full parts list appears.</span></li>
-      <li><span class="step-ico" aria-hidden="true">✅</span><span class="step-n">02 /</span><b>Tick what you have</b><span class="step-text">See exactly which pieces are still missing, in every colour.</span></li>
-      <li><span class="step-ico" aria-hidden="true">📷</span><span class="step-n">03 /</span><b>Find and scan</b><span class="step-text">Spot a piece in the pile? Scan it to see which set needs it.</span></li>
-    </ol>
-    <div class="step-dots" id="stepDots" aria-hidden="true"><span class="on"></span><span></span><span></span></div>
+    ${swipeCards('steps', [
+      ['📖', 'Add your sets', 'Type the number from the box or manual and the full parts list appears.'],
+      ['✅', 'Tick what you have', 'See exactly which pieces are still missing, in every colour.'],
+      [scanIcon({ cls: 'scan-ico big' }), 'Find and scan', 'Spot a piece in the pile? Scan it to see which set needs it.'],
+    ])}
     <footer class="welcome-foot small muted">
       <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Use</a>
       <p>LEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this app.</p>
     </footer>`;
-  const steps = $('#steps');
-  steps.addEventListener('scroll', () => {
-    const cards = [...steps.children];
-    const mid = steps.scrollLeft + steps.clientWidth / 2;
-    const i = cards.reduce((best, c, n) => (Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid) < Math.abs(cards[best].offsetLeft + cards[best].offsetWidth / 2 - mid) ? n : best), 0);
-    [...$('#stepDots').children].forEach((d, n) => d.classList.toggle('on', n === i));
-  }, { passive: true });
+  bindSwipeCards('steps');
   if ($('#startBtn')) {
     $('#startBtn').onclick = () => { state.welcomed = true; save(); go('#add'); render(); };
     return;
@@ -1075,7 +1103,7 @@ function renderSets() {
     ${figs ? renderFigHints() : ''}`;
   if (!all.length) {
     html += figs
-      ? `<div class="empty">${emptyFig()}<b>No minifigures yet</b><br>Tap <b>Add a minifigure</b> to search by name, scan a whole figure, or scan one of its pieces (like the legs) to work out which figure it's from.</div>`
+      ? `<div class="empty">${emptyFig()}<b>No minifigures yet</b><br>Tap <b>Add a minifigure</b> to scan a whole figure, or scan one of its pieces (like the legs) to work out which figure it's from.</div>`
       : `<div class="empty">${emptyBrick()}<b>No sets yet</b><br>Tap <b>Add a set</b> and enter the set number from the manual cover.</div>`;
   } else {
     const info = new Map(all.map((s) => {
@@ -1807,28 +1835,31 @@ function renderFigOut() {
   return h;
 }
 
+const FIG_TIPS = [
+  ['👕', 'Printed torsos work best', 'A torso with a design usually points to just one or two figures.'],
+  ['🧍', 'Whole figure? Face the front', 'Stand it up on white paper, with its face and torso showing.'],
+  ['🦵', 'Legs: two colours', "Pick the legs colour, then the hips (the top part). Plain legs are in hundreds of figures, so you'll narrow it down next."],
+  ['🔎', 'Lots of matches?', 'Type part of a name, like “knight” or “police”, to narrow the list.'],
+  ['💡', 'Good light', 'Daylight is best, on a plain background with no strong shadows.'],
+];
+
 function renderAddFig() {
   setTitle('Add a minifigure');
   $('#view').innerHTML = `
     <section class="hero fig-hero">
       ${emptyFig('fig-art')}
       <h2 class="hero-title">Got a minifigure?<br><span class="accent">Find out who it is.</span></h2>
-      <p class="hero-sub">Search by name, scan the whole figure, or scan just one piece (like the legs) to see which figures it could belong to.</p>
+      <p class="hero-sub">Scan the whole figure, or just one piece (like the legs), to see which figures it could belong to.</p>
     </section>
-    <div class="card">
-      <label class="lbl" for="figQ">Search by name or number</label>
-      <div class="fig-search">
-        <input class="field" id="figQ" type="search" placeholder="e.g. Black Falcon, Batman" value="${esc(figAdd.q)}" autocomplete="off" enterkeyhint="search">
-        <button class="btn primary" id="figGo">Search</button>
-      </div>
-    </div>
     <div class="scan-opts">
       <button class="scan-opt" id="scanFig"><span class="opt-ico">${figIcon()}</span><b>Scan whole figure</b><span>Stand it up on plain paper</span></button>
-      <button class="scan-opt" id="scanPiece"><span class="opt-ico">📷</span><b>Scan one piece</b><span>Legs, torso, head…</span></button>
+      <button class="scan-opt" id="scanPiece"><span class="opt-ico">${scanIcon()}</span><b>Scan one piece</b><span>Legs, torso, head…</span></button>
     </div>
-    <p class="muted small center">Tip: a <b>printed torso</b> narrows it down best. Plain legs and smiley heads are used in hundreds of figures.</p>
-    <div id="figOut">${renderFigOut()}</div>`;
+    <div id="figOut">${renderFigOut()}</div>
+    <h3 class="steps-title">Tips for a good match</h3>
+    ${swipeCards('figTips', FIG_TIPS)}`;
   bindAddFig();
+  bindSwipeCards('figTips');
 }
 
 function refreshFigOut({ scroll = false } = {}) {
@@ -1855,20 +1886,6 @@ function noFigs(title, text) {
 }
 
 function bindAddFig() {
-  const input = $('#figQ');
-  const search = () => {
-    const q = input.value.trim();
-    if (q.length < 2) return toast('Type at least 2 letters');
-    input.blur();
-    if (figAdd.photoUrl) URL.revokeObjectURL(figAdd.photoUrl);
-    Object.assign(figAdd, { q, photoUrl: '', step: '', filter: '', scanned: null, back: '' });
-    figStep('Searching…', async () => {
-      const data = await helperGet('figsearch=' + encodeURIComponent(q));
-      if (!data.results.length) return noFigs('No minifigures found', `Nothing matches “${q}”. Try a shorter name, or scan the figure instead.`);
-      Object.assign(figAdd, { step: 'results', results: data.results, resultsTitle: `${plural(data.results.length, 'minifigure', 'minifigures')} match “${q}”`, resultsHint: null });
-    });
-  };
-  if (input) { $('#figGo').onclick = search; input.onkeydown = (e) => { if (e.key === 'Enter') search(); }; }
   if ($('#scanFig')) $('#scanFig').onclick = () => { figAdd.scanKind = 'fig'; $('#figCameraInput').click(); };
   if ($('#scanPiece')) $('#scanPiece').onclick = () => { figAdd.scanKind = 'piece'; $('#figCameraInput').click(); };
 
@@ -2779,7 +2796,7 @@ function renderScan() {
         <h2 class="hero-title">Found a piece?<br><span class="accent">Scan it to find its set.</span></h2>
         <p class="hero-sub">Take a photo of one piece and Last Brick works out what it is, and which of your sets needs it.</p>
       </section>
-      <button class="btn primary block hero-cta" id="snap">📷 Scan a piece</button>
+      <button class="btn primary block hero-cta" id="snap">${scanIcon({ onRed: true, cls: 'scan-ico btn-ico' })} Scan a piece</button>
       <p class="center small hero-login">Know the part number? <a href="#missing">Search your list</a></p>
       <h3 class="steps-title">Tips for a good match</h3>
       <div class="tips">
@@ -2799,7 +2816,7 @@ function renderScan() {
     } else {
       html += renderScanResults(scanState.items);
     }
-    if (!scanState.loading) html += `<button class="btn primary block hero-cta scan-again" id="snap">📷 Scan another piece</button>`;
+    if (!scanState.loading) html += `<button class="btn primary block hero-cta scan-again" id="snap">${scanIcon({ onRed: true, cls: 'scan-ico btn-ico' })} Scan another piece</button>`;
   }
   $('#view').innerHTML = html;
   if ($('#snap')) $('#snap').onclick = () => $('#cameraInput').click();
@@ -3058,6 +3075,8 @@ document.querySelectorAll('#tabs button').forEach((b) => {
     go('#' + b.dataset.tab);
   };
 });
+// The Scan tab uses the same brick-and-scan-line picture as the Scan page.
+$('#tabs [data-tab="scan"] .ico').innerHTML = scanIcon({ cls: 'tab-svg' });
 $('#backBtn').onclick = () => (history.length > 1 ? history.back() : go('#sets'));
 
 render();
