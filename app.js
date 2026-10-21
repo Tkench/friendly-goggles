@@ -1205,28 +1205,178 @@ function figSetRows(fig, limit, withButtons) {
   }
   let html = list.slice(0, limit).map((x) => `
     <div class="for-set">
-      <div class="row grow" style="min-width:0">
+      <div class="row grow" style="min-width:0" ${withButtons && state.sets[x.setNum] ? `data-open-set="${esc(x.setNum)}"` : ''}>
         <div class="thumb">${x.img ? `<img src="${esc(x.img)}" alt="" loading="lazy">` : '🧱'}</div>
         <div class="grow" style="min-width:0">
           <div class="sname"><b>${esc(x.name)}</b></div>
-          <div class="small muted">${esc(setSub(x))}</div>
+          <div class="small muted">${esc(setSub(x))}${withButtons && state.sets[x.setNum] ? ' · <span class="yours">in your sets</span>' : ''}</div>
         </div>
       </div>
       ${!withButtons ? '' : state.sets[x.setNum]
-        ? `<button class="btn small" data-open-set="${esc(x.setNum)}">Open</button>`
-        : `<button class="btn ok small" data-add-set="${esc(x.setNum)}">Add set</button>`}
+        ? `<button class="btn ok small" data-move-to="${esc(x.setNum)}">Move here</button>`
+        : `<button class="btn small" data-add-move="${esc(x.setNum)}">Add &amp; move</button>`}
     </div>`).join('');
   if (list.length > limit) html += `<button class="link-btn" data-more-sets>Show all ${list.length} sets</button>`;
   return html;
 }
 
-function renderFigSets(fig) {
-  const n = (fig.inSets || []).length;
+/* ---------- Minifigures in a set (set page) ---------- */
+
+const setFigsLoading = new Set();
+
+// Downloads (once) which minifigures are in a set and what each is made of.
+async function loadSetFigs(set) {
+  if (set.figs || isFig(set) || setFigsLoading.has(set.setNum) || !helperAvailable()) return;
+  setFigsLoading.add(set.setNum);
+  try {
+    const data = await helperGet('setfigs=' + encodeURIComponent(set.setNum));
+    const live = state.sets[set.setNum];
+    if (!live) return;
+    live.figs = (data.results || []).map((f) => ({
+      figNum: f.set_num, name: f.name, qty: f.quantity || 1, img: f.set_img_url || '',
+      parts: f.parts.map((x) => ({ key: x.part_num + '|' + x.color_id, qty: x.quantity })),
+    }));
+    save();
+    const r = route();
+    if (r.name === 'set' && r.arg === set.setNum) { const y = window.scrollY; renderSet(set.setNum); window.scrollTo(0, y); }
+  } catch (e) {
+    console.warn('Could not load minifigures for', set.setNum, e); // try again next time the set is opened
+  } finally {
+    setFigsLoading.delete(set.setNum);
+  }
+}
+
+// Shares the set's found pieces out between its figures (in order), so each
+// figure (and each copy of it) shows whether all its pieces are found.
+function figProgress(set) {
+  const pool = new Map(set.parts.map((p) => [p.key, p.have]));
+  return (set.figs || []).map((f) => {
+    const copies = [];
+    for (let i = 0; i < f.qty; i++) {
+      let missing = 0;
+      for (const fp of f.parts) {
+        const got = Math.min(fp.qty, pool.get(fp.key) || 0);
+        pool.set(fp.key, (pool.get(fp.key) || 0) - got);
+        missing += fp.qty - got;
+      }
+      copies.push(missing);
+    }
+    return { f, copies, done: copies.filter((m) => !m).length };
+  });
+}
+
+function renderSetFigs(set) {
+  if (isFig(set)) return '';
+  if (!set.figs) return setFigsLoading.has(set.setNum) ? '<p class="muted small center">Loading minifigures…</p>' : '';
+  if (!set.figs.length) return '';
+  const prog = figProgress(set);
+  const total = prog.reduce((t, x) => t + x.f.qty, 0);
+  const done = prog.reduce((t, x) => t + x.done, 0);
   return `
-    <div class="card fig-sets">
-      <h2>${n ? `🧱 Comes in ${plural(n, 'set', 'sets')}` : '🧱 Not part of a set'}</h2>
-      ${figSetRows(fig, ui.figSetsAll === fig.setNum ? 999 : 3, true)}
+    <div class="card set-figs">
+      <h2>${figIcon()} Minifigures in this set <span class="muted small">${done} of ${total} complete</span></h2>
+      <div class="set-fig-grid">${prog.map(({ f, copies, done: d }, i) => `
+        <button class="set-fig ${d === f.qty ? 'done' : ''}" data-setfig="${i}">
+          <span class="sf-pic">${f.img ? `<img src="${esc(f.img)}" alt="" loading="lazy">` : '🙂'}${f.qty > 1 ? `<em>×${f.qty}</em>` : ''}</span>
+          <span class="sf-name">${esc(f.name)}</span>
+          ${d === f.qty ? '<span class="badge ok">✓ Done</span>' : `<span class="badge miss">${copies.reduce((t, m) => t + m, 0)} missing</span>`}
+        </button>`).join('')}</div>
     </div>`;
+}
+
+function showSetFigSheet(set, i, onChange) {
+  const { f, copies } = figProgress(set)[i];
+  const missingAll = copies.reduce((t, m) => t + m, 0);
+  // How many of each piece is still free for this figure after the figures before it.
+  const pool = new Map(set.parts.map((p) => [p.key, p.have]));
+  for (const prev of set.figs.slice(0, i)) for (const fp of prev.parts) pool.set(fp.key, Math.max(0, (pool.get(fp.key) || 0) - fp.qty * prev.qty));
+  openSheet(`
+    <div class="fig-preview">
+      <div class="big-pic">${f.img ? `<img src="${esc(f.img)}" alt="">` : emptyFig()}</div>
+      <h2>${f.qty > 1 ? f.qty + '× ' : ''}${esc(f.name)}</h2>
+      <p>${missingAll ? `<span class="badge miss">${plural(missingAll, 'piece', 'pieces')} still to find</span>` : '<span class="badge ok">All pieces found ✓</span>'}</p>
+      <h3 class="steps-title">Pieces${f.qty > 1 ? ` (for all ${f.qty})` : ''}</h3>
+      <div class="fig-parts">${f.parts.map((fp) => {
+        const p = set.parts.find((x) => x.key === fp.key);
+        if (!p) return '';
+        const need = fp.qty * f.qty;
+        const got = Math.min(need, pool.get(fp.key) || 0);
+        return `
+        <div class="fig-part ${got >= need ? 'scanned' : 'need'}" data-part="${esc(p.key)}">
+          <div class="thumb">${partImg(p)}</div>
+          <div class="grow" style="min-width:0">
+            <div class="small"><b>${need > 1 ? need + '× ' : ''}${esc(p.name)}</b></div>
+            <div class="small muted">${swatch(p.rgb)} ${esc(p.colorName)}</div>
+            ${got >= need ? '<span class="badge ok">Found ✓</span>' : `<span class="badge miss">need ${need - got}</span>`}
+          </div>
+        </div>`;
+      }).join('')}</div>
+      <p class="muted small center">Tap a piece to record finding it.</p>
+      <button class="btn block" data-close>Close</button>
+    </div>`);
+  document.querySelectorAll('[data-part]').forEach((el) => {
+    el.onclick = () => showSetPartSheet(set.setNum, el.dataset.part, () => { onChange(); showSetFigSheet(state.sets[set.setNum], i, onChange); });
+  });
+}
+
+function renderFigSets(fig) {
+  const list = fig.inSets || [];
+  const n = list.length;
+  const done = !setStats(fig).missing;
+  // Sets you already have first, so "Move here" is easy to find.
+  const sorted = { ...fig, inSets: [...list].sort((a, b) => !!state.sets[b.setNum] - !!state.sets[a.setNum]) };
+  const yours = list.filter((x) => state.sets[x.setNum]).length;
+  return `
+    <div class="card fig-sets ${done && n ? 'done' : ''}">
+      <h2>${!n ? '🧱 Not part of a set' : done ? '✅ Complete! Move it to its set' : `🧱 Comes in ${plural(n, 'set', 'sets')}`}</h2>
+      ${n ? `<p class="muted small">${yours
+        ? `${yours === 1 ? 'One of these is' : `${yours} of these are`} in your sets. <b>Move here</b> ticks this figure's found pieces in that set and takes it off your Minifigures list.`
+        : '<b>Add &amp; move</b> adds the whole set (its other pieces start as missing) and moves this figure into it.'}</p>` : ''}
+      ${figSetRows(sorted, ui.figSetsAll === fig.setNum ? 999 : 3, true)}
+    </div>`;
+}
+
+// Moves a figure's found pieces into a set. Pieces the set has already found
+// stay with the figure as spares; the figure is removed if nothing is left.
+async function moveFigToSet(fig, setNum, { ask = true } = {}) {
+  const set = state.sets[setNum];
+  if (!set || !state.sets[fig.setNum]) return;
+  const found = fig.parts.reduce((t, p) => t + p.have, 0);
+  const ok = !ask || await askConfirm({
+    title: `Move ${fig.name} into ${set.name}?`,
+    text: found
+      ? `Its ${plural(found, 'found piece', 'found pieces')} will be ticked in ${set.name} (#${shortSetNum(setNum)}) and it will come off your Minifigures list.`
+      : `It has no pieces found yet, so it will just come off your Minifigures list (its pieces are already in ${set.name}'s list).`,
+    ok: 'Move',
+  });
+  if (!ok || !state.sets[fig.setNum] || !state.sets[setNum]) return;
+  const before = { fig: structuredClone(fig), set: set.parts.map((p) => p.have) };
+  const spares = [];
+  for (const p of fig.parts) {
+    if (!p.have) continue;
+    const target = set.parts.find((x) => x.key === p.key);
+    const moved = target ? Math.min(p.have, target.qty - target.have) : 0;
+    if (target) target.have += moved;
+    p.have -= moved;
+    if (p.have) spares.push(p);
+  }
+  if (!spares.length) delete state.sets[fig.setNum];
+  save();
+  buzz();
+  lastUndo = () => {
+    state.sets[fig.setNum] = before.fig;
+    set.parts.forEach((p, i) => { p.have = before.set[i]; });
+    save();
+    render();
+  };
+  if (spares.length) {
+    const n = spares.reduce((t, p) => t + p.have, 0);
+    toast(`Moved to ${set.name}. ${plural(n, 'piece was', 'pieces were')} already found there, so kept here as ${n === 1 ? 'a spare' : 'spares'}.`, true);
+    render();
+  } else {
+    toast(`🔁 Moved ${fig.name} into ${set.name}`, true);
+    location.replace('#set/' + encodeURIComponent(setNum));
+  }
 }
 
 function bindFigSets(fig) {
@@ -1234,19 +1384,29 @@ function bindFigSets(fig) {
   document.querySelectorAll('[data-open-set]').forEach((b) => { b.onclick = () => go('#set/' + encodeURIComponent(b.dataset.openSet)); });
   const more = $('[data-more-sets]');
   if (more) more.onclick = () => { ui.figSetsAll = fig.setNum; renderSet(fig.setNum); };
-  document.querySelectorAll('[data-add-set]').forEach((b) => {
+  document.querySelectorAll('[data-move-to]').forEach((b) => { b.onclick = () => moveFigToSet(fig, b.dataset.moveTo); });
+  document.querySelectorAll('[data-add-move]').forEach((b) => {
     b.onclick = async () => {
+      const num = b.dataset.addMove;
+      const info = fig.inSets.find((x) => x.setNum === num);
+      if (!await askConfirm({
+        title: `Add ${info ? info.name : 'this set'} and move ${fig.name} into it?`,
+        text: 'This adds the whole set to your sets, with all its pieces starting as missing, then ticks off this figure\'s found pieces in it.',
+        ok: 'Add set & move',
+      })) return;
       b.disabled = true;
       b.textContent = 'Adding…';
       try {
-        const set = await fetchSet(b.dataset.addSet);
-        state.sets[set.setNum] = set;
-        save();
-        toast(`Added ${set.name} to your sets`);
+        if (!state.sets[num]) {
+          const set = await fetchSet(num);
+          state.sets[set.setNum] = set;
+          save();
+        }
+        await moveFigToSet(fig, num, { ask: false });
       } catch (e) {
         toast(e.message);
+        if (route().arg === fig.setNum) renderSet(fig.setNum);
       }
-      if (route().arg === fig.setNum) { const y = window.scrollY; renderSet(fig.setNum); window.scrollTo(0, y); }
     };
   });
 }
@@ -1693,7 +1853,7 @@ function renderSet(setNum) {
         <button class="btn small value-btn" id="valueBtn">${hasValue(set) ? `💷 ${money(set.value)} · edit` : '💷 Add value'}</button>
       </div>
     </div>
-    ${isFig(set) ? renderFigSets(set) : ''}
+    ${isFig(set) ? renderFigSets(set) : renderSetFigs(set)}
     ${renderSwapBox(set)}
     <div class="sets-toolbar lf-toolbar">
       <label class="sort-select">
@@ -1793,6 +1953,8 @@ function renderSet(setNum) {
     };
   });
   bindFigSets(set);
+  document.querySelectorAll('[data-setfig]').forEach((b) => { b.onclick = () => showSetFigSheet(set, Number(b.dataset.setfig), rerender); });
+  if (!set.figs && !isFig(set)) loadSetFigs(set);
   const delBtn = $('#delBtn');
   delBtn.classList.remove('hidden');
   $('#del').onclick = delBtn.onclick = async () => { if (await deleteSet(setNum)) go('#sets'); };

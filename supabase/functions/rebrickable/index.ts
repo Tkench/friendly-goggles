@@ -14,6 +14,7 @@
 //   ?figfind=cas123&name=…        { results: [figure, …] }       (match a figure scan)
 //   ?partfigs=973pb123c01         { part, colors: [colour, …] }  (colours a scanned piece comes in)
 //   ?partfigs=…&color=0           { part, color, results: [figure, …] } (figures using that piece)
+//   ?setfigs=6080-1               { results: [{ set_num, name, quantity, set_img_url, parts }] } (figures in a set)
 
 const RB = 'https://rebrickable.com/api/v3/lego';
 const KEY = Deno.env.get('REBRICKABLE_KEY') ?? '';
@@ -204,6 +205,21 @@ async function partFigs(id: string, color: string) {
   };
 }
 
+// The minifigures in a set, each with its pieces, so the app can show which are complete.
+async function setFigs(set: string) {
+  const figs = await allPages(`/sets/${encodeURIComponent(set)}/minifigs/?page_size=1000`);
+  const results = [];
+  for (const f of figs) {
+    const parts = await allPages(`/minifigs/${encodeURIComponent(f.set_num)}/parts/?page_size=1000`);
+    results.push({
+      set_num: f.set_num, name: f.set_name ?? f.name, quantity: f.quantity, set_img_url: f.set_img_url,
+      // deno-lint-ignore no-explicit-any
+      parts: parts.filter((r: any) => !r.is_spare).map((r: any) => ({ part_num: r.part.part_num, color_id: r.color.id, quantity: r.quantity })),
+    });
+  }
+  return { results };
+}
+
 const FIG_NUM = /^fig-[0-9]{1,8}$/i;
 const PART_ID = /^[0-9A-Za-z.\-]{1,40}$/;
 
@@ -231,6 +247,11 @@ Deno.serve(async (req: Request) => {
     const blid = params.get('figfind');
     if (blid !== null) {
       return reply(200, await findFigs(blid.slice(0, 40), (params.get('name') || '').slice(0, 120)));
+    }
+    const inSet = params.get('setfigs');
+    if (inSet !== null) {
+      if (!/^[0-9A-Za-z]{1,15}-[0-9]{1,3}$/.test(inSet)) return reply(400, { error: 'Invalid set number' });
+      return reply(200, await cached('setfigs:' + inSet.toLowerCase(), KEEP_FOR, () => setFigs(inSet)));
     }
     const part = params.get('partfigs');
     if (part !== null) {
