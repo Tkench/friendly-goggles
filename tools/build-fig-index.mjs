@@ -5,6 +5,10 @@
 // and writes small JSON files under data/figindex/:
 //   colors.json    { colourId: [name, rgb] }
 //   p/<xx>.json    { part_num: { n: name, c: { colourId: { i: image, f: [[fig_num, name, image, pieces], …] } } } }
+//   legs.json      { legsColour: { hipsColourId: { i: image, plain: [figs], printed: [figs] } } }
+//                  Scanners call plain legs 970c00 whatever the colour, but Rebrickable
+//                  numbers legs by leg colour (970c28 = blue legs) with the hips colour as
+//                  the piece colour, so legs get their own list, found by colour.
 //   meta.json      when it was built and how big it is
 // Parts are spread over 256 files by a hash of the part number (see shardOf,
 // which app.js repeats), so a scan downloads only one small file.
@@ -117,5 +121,25 @@ for (let i = 0; i < 256; i++) {
   fs.writeFileSync(path.join(OUT, 'p', key + '.json'), JSON.stringify(shards.get(key) || {}));
 }
 fs.writeFileSync(path.join(OUT, 'colors.json'), JSON.stringify(colours));
+
+const legs = {};
+for (const [num, p] of index) {
+  const m = /^Hips and (.+?) Legs\b/.exec(p.n);
+  if (!m) continue;
+  const kind = p.n === m[0] ? 'plain' : 'printed';
+  const byHips = legs[m[1]] || (legs[m[1]] = {});
+  for (const [colour, v] of Object.entries(p.c)) {
+    const e = byHips[colour] || (byHips[colour] = { i: '', plain: new Set(), printed: new Set() });
+    if (!e.i || kind === 'plain') e.i = v.i || e.i;
+    v.f.forEach((f) => e[kind].add(f));
+  }
+}
+for (const byHips of Object.values(legs)) {
+  for (const e of Object.values(byHips)) {
+    e.plain = [...e.plain].sort().map((f) => figs.get(f));
+    e.printed = [...e.printed].sort().map((f) => figs.get(f));
+  }
+}
+fs.writeFileSync(path.join(OUT, 'legs.json'), JSON.stringify(legs));
 fs.writeFileSync(path.join(OUT, 'meta.json'), JSON.stringify({ built: new Date().toISOString(), figs: latest.size, parts: index.size, imageBase: IMG }));
 console.log(`Done: ${latest.size} minifigures, ${index.size} different pieces.`);

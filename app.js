@@ -1781,6 +1781,19 @@ function renderFigOut() {
       </button>`).join('')}</div>`;
     h += `<button class="link-btn" data-back="guesses">‹ Pick a different piece</button>`;
   }
+  if (a.step === 'legcolours' || a.step === 'hips') {
+    const legs = a.step === 'hips';
+    h += `<div class="picked-part"><div class="thumb">${a.part.img ? `<img src="${esc(a.part.img)}" alt="">` : '🧱'}</div><div><b>${esc(legs ? a.legsColour + ' legs' : 'Minifigure legs')}</b><div class="small muted">${legs ? 'Now the hips (the top part)' : 'Hips and legs'}</div></div></div>`;
+    h += `<h3 class="steps-title">${legs ? 'What colour are the hips?' : 'What colour are the legs?'}</h3>`;
+    h += `<p class="muted small">${legs ? 'If the legs have a pattern printed on them, pick a “printed” option.' : 'The scanner works out the shape, but not always the colour.'}</p>`;
+    h += `<div class="colour-pick">${(legs ? a.hipOptions : a.legOptions).map((o, i) => `
+      <button class="colour-opt" data-legopt="${i}">
+        ${o.img ? `<img src="${esc(o.img)}" alt="" loading="lazy">` : '<span class="no-pic">🧱</span>'}
+        <span>${swatch(o.rgb)} ${esc(o.label)}</span>
+        <em class="muted small">${plural(o.figs, 'figure', 'figures')}</em>
+      </button>`).join('')}</div>`;
+    h += `<button class="link-btn" data-back="${legs ? 'legcolours' : 'guesses'}">‹ ${legs ? 'Pick a different legs colour' : 'Pick a different piece'}</button>`;
+  }
   if (a.step === 'results') {
     const q = (a.filter || '').toLowerCase();
     const list = q ? a.results.filter((f) => f.name.toLowerCase().includes(q) || f.set_num.includes(q)) : a.results;
@@ -1789,7 +1802,7 @@ function renderFigOut() {
     if (a.results.length > 12) h += `<input class="field" id="figFilter" type="search" placeholder="Narrow down by name, e.g. knight" value="${esc(a.filter || '')}" autocomplete="off">`;
     h += list.length ? figTiles(list.slice(0, FIG_SHOW_MAX)) : `<div class="empty">No figures match “${esc(a.filter)}”.</div>`;
     if (list.length > FIG_SHOW_MAX) h += `<p class="center muted small">Showing ${FIG_SHOW_MAX} of ${list.length}. Type above to narrow it down.</p>`;
-    if (a.back) h += `<button class="link-btn" data-back="${esc(a.back)}">‹ ${a.back === 'colours' ? 'Pick a different colour' : 'Pick a different match'}</button>`;
+    if (a.back) h += `<button class="link-btn" data-back="${esc(a.back)}">‹ ${a.back === 'colours' || a.back === 'hips' || a.back === 'legcolours' ? 'Pick a different colour' : 'Pick a different match'}</button>`;
   }
   return h;
 }
@@ -1872,6 +1885,7 @@ function bindAddFig() {
         return;
       }
       figStep('Looking up this piece…', async () => {
+        if (isLegs(g) && await startLegs(g)) return;
         // Try the scanner's part number first, then Rebrickable's number for it.
         let num = g.id;
         let entry = await figIndexPart(num);
@@ -1906,6 +1920,13 @@ function bindAddFig() {
       });
     };
   });
+  document.querySelectorAll('[data-legopt]').forEach((b) => {
+    b.onclick = () => {
+      const o = (figAdd.step === 'hips' ? figAdd.hipOptions : figAdd.legOptions)[Number(b.dataset.legopt)];
+      if (figAdd.step === 'legcolours') figStep('Finding these legs…', () => pickLegsColour(o.key));
+      else { pickHips(o); refreshFigOut({ scroll: true }); }
+    };
+  });
   document.querySelectorAll('[data-colour]').forEach((b) => {
     b.onclick = () => figStep('Finding minifigures with this piece…', () => pickColour(b.dataset.colour));
   });
@@ -1924,6 +1945,72 @@ function bindAddFig() {
     };
   }
   document.querySelectorAll('[data-fig]').forEach((el) => { el.onclick = () => showFigPreview(el.dataset.fig); });
+}
+
+/* Legs: scanners call plain legs 970c00 in any colour, but Rebrickable numbers
+ * them by leg colour with the hips as the piece colour, so legs use their own
+ * list (legs.json): legs colour → hips colour → plain or printed → figures. */
+const isLegs = (g) => /^(970c|970x|73200)/i.test(g.id) || (/\bhips\b/i.test(g.name) && /\blegs\b/i.test(g.name));
+
+async function colourByName() {
+  const names = (await figIndexFile('colors.json')) || {};
+  const out = {};
+  for (const [id, [name, rgb]] of Object.entries(names)) out[name] = { id: Number(id), rgb };
+  return { byName: out, names };
+}
+
+async function startLegs(g) {
+  const legs = await figIndexFile('legs.json');
+  if (!legs) return false;
+  const { byName } = await colourByName();
+  figAdd.legsData = legs;
+  figAdd.part = { num: g.id, name: 'Hips and Legs', img: g.img_url };
+  figAdd.legOptions = Object.entries(legs).map(([name, byHips]) => {
+    const all = Object.values(byHips);
+    const best = byHips[byName[name]?.id] || all[0];
+    return {
+      key: name, label: name, rgb: byName[name]?.rgb || 'cccccc', img: best && best.i ? RB_MEDIA + best.i : '',
+      figs: all.reduce((t, e) => t + e.plain.length + e.printed.length, 0),
+    };
+  }).sort((a, b) => b.figs - a.figs);
+  figAdd.step = 'legcolours';
+  return true;
+}
+
+async function pickLegsColour(name) {
+  const { byName, names } = await colourByName();
+  const byHips = figAdd.legsData[name] || {};
+  const same = byName[name]?.id;
+  const opts = [];
+  for (const [hips, e] of Object.entries(byHips)) {
+    const hipsName = (names[hips] || [])[0] || 'Colour ' + hips;
+    for (const kind of ['plain', 'printed']) {
+      if (!e[kind].length) continue;
+      opts.push({
+        key: hips + '|' + kind, hips: Number(hips), kind, rgb: (names[hips] || [])[1] || 'cccccc',
+        label: `${hipsName} hips${kind === 'printed' ? ', printed legs' : ''}`, img: e.i ? RB_MEDIA + e.i : '', figs: e[kind].length,
+      });
+    }
+  }
+  // Same-colour plain legs first (the usual kind), then the most common.
+  opts.sort((a, b) => ((b.hips === same && b.kind === 'plain') - (a.hips === same && a.kind === 'plain')) || b.figs - a.figs);
+  Object.assign(figAdd, { legsColour: name, hipOptions: opts, step: 'hips' });
+  if (opts.length === 1) pickHips(opts[0]);
+}
+
+function pickHips(o) {
+  const list = figAdd.legsData[figAdd.legsColour][o.hips][o.kind];
+  const hipsName = o.label.replace(/ hips.*$/, '');
+  const n = list.length;
+  Object.assign(figAdd, {
+    step: 'results', filter: '', back: figAdd.hipOptions.length > 1 ? 'hips' : 'legcolours',
+    scanned: { legs: figAdd.legsColour, hips: o.hips },
+    results: list.map(([num, name, img, parts]) => ({ set_num: num, name, set_img_url: img ? RB_MEDIA + img : '', num_parts: parts })),
+    resultsTitle: `${figAdd.legsColour} legs, ${hipsName} hips${o.kind === 'printed' ? ' (printed)' : ''}: in ${plural(n, 'minifigure', 'minifigures')}`,
+    resultsHint: n > 12
+      ? ['Lots of figures have these legs', 'Type a name below to narrow it down, or scan the torso — printed torsos usually point to just one or two figures.']
+      : ['Tap a figure to see the rest of its pieces', 'and which sets it came in.'],
+  });
 }
 
 async function pickColour(colourId) {
@@ -1960,7 +2047,8 @@ async function showFigPreview(figNum) {
   if ($('#sheet').classList.contains('hidden')) return; // closed while loading
   const owned = state.sets[fig.setNum];
   const sc = figAdd.scanned;
-  const scanned = sc && fig.parts.find((p) => p.partNum === sc.partNum && p.colorId === sc.colorId);
+  const legsRe = sc && sc.legs ? new RegExp('^Hips and ' + sc.legs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' Legs\\b') : null;
+  const scanned = sc && fig.parts.find((p) => (legsRe ? legsRe.test(p.name) && p.colorId === sc.hips : p.partNum === sc.partNum && p.colorId === sc.colorId));
   const pieces = fig.parts.reduce((t, p) => t + p.qty, 0);
   openSheet(`
     <div class="fig-preview">
