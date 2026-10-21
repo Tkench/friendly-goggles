@@ -872,7 +872,22 @@ function scanFigIcon(cls = 'scan-ico') {
     <rect x="9.6" y="14.3" width="8.8" height="1.8" rx=".4" fill="${b}" stroke="${be}" stroke-width=".6"/>
     <rect x="9.8" y="15.9" width="4" height="6" rx=".5" fill="${b}" stroke="${be}" stroke-width=".6"/>
     <rect x="14.2" y="15.9" width="4" height="6" rx=".5" fill="${b}" stroke="${be}" stroke-width=".6"/>
-    <rect x="4.5" y="12.4" width="19" height="1.9" rx=".95" fill="var(--brand)" stroke="#fff" stroke-width=".6"/>
+    <rect class="ico-scan-line" x="4.5" y="12.4" width="19" height="1.9" rx=".95" fill="var(--brand)" stroke="#fff" stroke-width=".6"/>
+  </svg>`;
+}
+
+// A minifigure head inside the scan corners, with a moving scan line, for "Scan one piece".
+function scanHeadIcon(cls = 'scan-ico') {
+  const [y, ye] = BRICK_COLOURS.y;
+  const c = (d) => `<path d="${d}" fill="none" stroke="var(--brand)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return `<svg class="${cls}" viewBox="0 0 28 26" aria-hidden="true">
+    ${c('M2.5 8 V3 H7.5')}${c('M20.5 3 H25.5 V8')}${c('M25.5 18 V23 H20.5')}${c('M7.5 23 H2.5 V18')}
+    <rect x="11.5" y="4.6" width="5" height="2.6" rx=".8" fill="${y}" stroke="${ye}" stroke-width=".7"/>
+    <rect x="8.6" y="6.8" width="10.8" height="10" rx="3.4" fill="${y}" stroke="${ye}" stroke-width=".9"/>
+    <rect x="11.5" y="16.6" width="5" height="2.4" rx=".6" fill="${y}" stroke="${ye}" stroke-width=".7"/>
+    <circle cx="12.2" cy="10.9" r=".95" fill="#222"/><circle cx="15.8" cy="10.9" r=".95" fill="#222"/>
+    <path d="M11.8 13.4 Q14 15.2 16.2 13.4" fill="none" stroke="#222" stroke-width=".9" stroke-linecap="round"/>
+    <rect class="ico-scan-line" x="4.5" y="12.4" width="19" height="1.9" rx=".95" fill="var(--brand)" stroke="#fff" stroke-width=".6"/>
   </svg>`;
 }
 
@@ -1879,7 +1894,7 @@ function renderAddFig() {
     </section>
     <div class="scan-opts">
       <button class="scan-opt" id="scanFig"><span class="opt-ico">${scanFigIcon()}</span><b>Scan whole figure</b><span>Stand it up on plain paper</span></button>
-      <button class="scan-opt" id="scanPiece"><span class="opt-ico">${scanIcon()}</span><b>Scan one piece</b><span>Legs, torso, head…</span></button>
+      <button class="scan-opt" id="scanPiece"><span class="opt-ico">${scanHeadIcon()}</span><b>Scan one piece</b><span>Legs, torso, head…</span></button>
     </div>
     <div id="figOut">${renderFigOut()}</div>
     <h3 class="steps-title">Tips for a good match</h3>

@@ -605,3 +605,7 @@ body.welcome .topbar {
 .scan-opt .opt-ico { height: 46px; }
 .scan-opt .opt-ico .scan-ico { width: 50px; height: 46px; }
 .step-svg { width: 40px; height: 48px; display: block; }
+/* Scan line moving up and down over the minifigure scan icons */
+.ico-scan-line { animation: ico-scan 1.8s ease-in-out infinite alternate; }
+@keyframes ico-scan { from { transform: translateY(-8.5px); } to { transform: translateY(8.5px); } }
+@media (prefers-reduced-motion: reduce) { .ico-scan-line { animation: none; } }
