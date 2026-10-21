@@ -2018,7 +2018,16 @@ function renderFigOutInner() {
     const q = (a.filter || '').toLowerCase();
     const list = q ? a.results.filter((f) => f.name.toLowerCase().includes(q) || f.set_num.includes(q)) : a.results;
     h += `<h3 class="steps-title">${esc(a.resultsTitle)}</h3>`;
+    if (a.resultsSub) h += `<p class="muted small">${esc(a.resultsSub)}</p>`;
     if (a.resultsHint) h += `<div class="verdict-card ${a.results.length > 12 ? 'no' : 'yes'}"><span class="verdict-ico">${a.results.length > 12 ? '💡' : '✅'}</span><div><b>${esc(a.resultsHint[0])}</b><span>${esc(a.resultsHint[1])}</span></div></div>`;
+    if (a.torsoTip) {
+      h += `
+      <div class="torso-tip">
+        <span class="torso-ico">${figTorsoIcon('torso-svg')}</span>
+        <div class="grow"><b>Not sure?</b><span>Scan just the torso for an exact match.</span></div>
+        <button class="btn primary small" id="scanTorso">Scan torso</button>
+      </div>`;
+    }
     if (a.results.length > 12) h += `<input class="field" id="figFilter" type="search" placeholder="Narrow down by name, e.g. knight" value="${esc(a.filter || '')}" autocomplete="off">`;
     h += list.length ? figTiles(list.slice(0, FIG_SHOW_MAX)) : `<div class="empty">No figures match “${esc(a.filter)}”.</div>`;
     if (list.length > FIG_SHOW_MAX) h += `<p class="center muted small">Showing ${FIG_SHOW_MAX} of ${list.length}. Type above to narrow it down.</p>`;
@@ -2110,6 +2119,7 @@ function bindAddFig() {
     });
   });
   if ($('#scanFig')) $('#scanFig').onclick = () => { figAdd.scanKind = 'fig'; $('#figCameraInput').click(); };
+  if ($('#scanTorso')) $('#scanTorso').onclick = () => { figAdd.scanKind = 'piece'; $('#figCameraInput').click(); };
   if ($('#scanPiece')) $('#scanPiece').onclick = () => { figAdd.scanKind = 'piece'; $('#figCameraInput').click(); };
 
   document.querySelectorAll('[data-guess]').forEach((b) => {
@@ -2117,6 +2127,9 @@ function bindAddFig() {
       const g = figAdd.guesses[Number(b.dataset.guess)];
       if (figAdd.scanKind === 'fig') {
         figStep('Finding this figure…', async () => {
+          // If the scanner links to the figure on Rebrickable, that's an exact match.
+          const rbLink = (g.external_sites || []).map((x) => /rebrickable\.com\/minifigs\/(fig-\d+)/i.exec(x.url || '')).find(Boolean);
+          if (rbLink) { figAdd.step = 'guesses'; showFigPreview(rbLink[1].toLowerCase(), g.img_url); return; }
           // The scanner names figures the BrickLink way, so match by words against
           // Rebrickable's names, plus whatever Rebrickable's own search finds.
           let found = [];
@@ -2136,9 +2149,10 @@ function bindAddFig() {
           const pick = sure.length === 1 ? sure[0] : null;
           if (pick) { figAdd.step = 'guesses'; showFigPreview(pick.set_num, pick.set_img_url || g.img_url); return; }
           Object.assign(figAdd, {
-            step: 'results', results, back: 'guesses', filter: '',
+            step: 'results', results, back: 'guesses', filter: '', torsoTip: true,
             resultsTitle: 'Which one is yours?',
-            resultsHint: [`Closest matches for “${g.name}”`, 'Rebrickable names figures a little differently from the scanner, so tap the one that looks like yours.'],
+            resultsHint: null,
+            resultsSub: `Closest matches for “${g.name.replace(/\s*\([^)]*\)/g, '')}”. Tap the one that looks like yours.`,
           });
         });
         return;
@@ -2262,7 +2276,7 @@ function pickHips(o) {
   const hipsName = o.label.replace(/ hips.*$/, '');
   const n = list.length;
   Object.assign(figAdd, {
-    step: 'results', filter: '', back: figAdd.hipOptions.length > 1 ? 'hips' : 'legcolours',
+    step: 'results', filter: '', torsoTip: false, resultsSub: '', back: figAdd.hipOptions.length > 1 ? 'hips' : 'legcolours',
     scanned: { legs: figAdd.legsColour, hips: o.hips },
     results: list.map(([num, name, img, parts]) => ({ set_num: num, name, set_img_url: img ? RB_MEDIA + img : '', num_parts: parts })),
     resultsTitle: `${figAdd.legsColour} legs, ${hipsName} hips${o.kind === 'printed' ? ' (printed)' : ''}: in ${plural(n, 'minifigure', 'minifigures')}`,
@@ -2285,7 +2299,7 @@ async function pickColour(colourId) {
   const n = data.results.length;
   if (!n) return noFigs('No minifigures found', `Rebrickable doesn't list any figures with this piece in ${colour.name || 'that colour'}. Try another colour, or scan the whole figure.`);
   Object.assign(figAdd, {
-    step: 'results', results: data.results, filter: '', back: figAdd.colours.length > 1 ? 'colours' : 'guesses',
+    step: 'results', results: data.results, filter: '', torsoTip: false, resultsSub: '', back: figAdd.colours.length > 1 ? 'colours' : 'guesses',
     resultsTitle: `${colour.name} ${data.part.name}: in ${plural(n, 'minifigure', 'minifigures')}`,
     resultsHint: n > 12
       ? ['Lots of figures use this piece', 'Type a name below to narrow it down, or scan the torso — printed torsos usually point to just one or two figures.']
@@ -3206,6 +3220,7 @@ function scanReportContext() {
   return {
     page: 'Scan',
     scannerGuesses: (scanState?.items || []).slice(0, 4).map((i) => ({ id: i.id, name: i.name, sure: pct(i.score) + '%' })),
+    scannerLinks: (scanState?.items || []).slice(0, 2).flatMap((i) => (i.external_sites || []).map((x) => `${i.id}: ${x.name} ${x.url}`)),
   };
 }
 
@@ -3215,6 +3230,7 @@ function figReportContext(figNum) {
     page: 'Add a minifigure',
     scanned: a.scanKind === 'fig' ? 'whole figure' : a.scanKind === 'piece' ? 'one piece' : undefined,
     scannerGuesses: (a.guesses || []).slice(0, 4).map((i) => ({ id: i.id, name: i.name, sure: pct(i.score) + '%' })),
+    scannerLinks: (a.guesses || []).slice(0, 2).flatMap((i) => (i.external_sites || []).map((x) => `${i.id}: ${x.name} ${x.url}`)),
     piece: a.part ? `${a.part.name} (${a.part.num})` : undefined,
     legsColour: a.legsColour,
     shown: a.step === 'results' ? (a.results || []).slice(0, 10).map((f) => `${f.set_num} ${f.name}`) : undefined,
@@ -3236,7 +3252,7 @@ async function smallPhoto(url) {
 }
 
 const REPORT_LABELS = {
-  page: 'Page', scanned: 'Scanned', scannerGuesses: 'Scanner guessed', piece: 'Piece looked up',
+  page: 'Page', scanned: 'Scanned', scannerGuesses: 'Scanner guessed', scannerLinks: 'Scanner links', piece: 'Piece looked up',
   legsColour: 'Legs colour', shown: 'Figures shown', narrowedBy: 'Narrowed down by', figureOpened: 'Figure opened',
 };
 

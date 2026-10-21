@@ -650,3 +650,9 @@ body.welcome .topbar {
 .rep-details ul { padding-left: 18px; margin: 6px 0 0; word-break: break-word; }
 .report-link { margin: 6px 0 10px; }
 .report-link .link-btn { color: var(--muted); font-weight: 600; font-size: 14px; }
+/* "Not here? Scan the torso" after a whole-figure scan */
+.torso-tip { display: flex; gap: 10px; align-items: center; flex-wrap: nowrap; background: var(--card); border: 2px dashed var(--line); border-radius: 16px; padding: 12px 14px; margin: 16px 0 10px; }
+.torso-tip b { display: block; font-size: 16px; }
+.torso-tip span:not(.torso-ico) { color: var(--muted); font-size: 14px; }
+.torso-svg { width: 46px; height: 44px; display: block; }
+.torso-tip .btn { flex: none; }
