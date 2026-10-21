@@ -633,3 +633,13 @@ body.welcome .topbar {
   .steps li { background: #341616; border-color: #6a2525; }
   .steps .step-n { color: #ff6b66; opacity: .8; }
 }
+/* Sign-up panel shown when adding a second set or minifigure without an account */
+.gate { text-align: center; }
+.gate-art { width: 150px; height: auto; display: block; margin: 4px auto 6px; }
+.gate h2 { margin: 6px 0; }
+.gate-card { text-align: left; margin-top: 14px; }
+.gate-card h2 { display: none; }
+.gate-card > p.small:first-of-type { display: none; }
+.gate-card .row { flex-direction: row-reverse; }
+.gate-card #registerBtn { background: var(--brand); color: var(--brand-ink); }
+.gate-card #loginBtn { background: var(--chip); color: var(--text); }

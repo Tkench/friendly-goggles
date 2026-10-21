@@ -273,6 +273,39 @@ async function deleteAccount() {
 
 // After tapping the link in a confirmation or password-reset email, Supabase
 // sends people back here with the login in the address (#access_token=…).
+/* ---------- Free to try: one set or minifigure without an account ----------
+ * Adding a second one asks people to create a free account (or log in).
+ * Everything already added is kept; scanning works without an account. */
+const FREE_ITEMS = 1;
+let afterAuth = null; // what to do once someone logs in from the sign-up panel
+
+function needsAccount() {
+  return syncEnabled() && !session && Object.keys(state.sets).length >= FREE_ITEMS;
+}
+
+// Returns true if adding can go ahead; otherwise shows the sign-up panel and,
+// once they're logged in, runs `then`.
+function accountGate(then = () => render()) {
+  if (!needsAccount()) return true;
+  openSheet(`
+    <div class="gate">
+      <button class="sheet-x" data-close aria-label="Close">✕</button>
+      ${brandArt({ cls: 'gate-art' })}
+      <h2>Create a free account to add more</h2>
+      <p class="muted">You've tried Last Brick with your first ${Object.values(state.sets).some(isFig) ? 'minifigure' : 'set'}. A free account lets you add as many sets and minifigures as you like, backs them up, and keeps them in sync on your other devices.</p>
+      <p class="muted small">What you've already added comes with you.</p>
+      <div id="accountCard" class="gate-card"></div>
+    </div>`);
+  afterAuth = () => { closeSheet(); then(); };
+  renderAccountCard();
+  return false;
+}
+
+function authDone(message) {
+  toast(message);
+  if (afterAuth) { const next = afterAuth; afterAuth = null; next(); } else renderSettings();
+}
+
 async function handleAuthRedirect() {
   const h = location.hash.slice(1);
   if (!syncEnabled() || !/(^|&)(access_token|error_description)=/.test(h)) return;
@@ -773,6 +806,7 @@ function askConfirm({ title, text = '', ok = 'OK', danger = false }) {
 }
 
 function closeSheet() {
+  afterAuth = null;
   $('#sheet').classList.add('hidden');
   $('#sheet').innerHTML = '';
 }
@@ -950,7 +984,7 @@ function renderWelcome() {
       <p></p>
       <button class="btn primary block" id="saveKey">Save and start</button>
     </div>` : `
-    <button class="btn primary block hero-cta" id="startBtn">Get started for free</button>`}
+    <button class="btn primary block hero-cta" id="startBtn">Try it with your first set</button>`}
     ${syncEnabled() ? `<p class="center small hero-login">Already have an account? <a href="#settings">Log in</a></p>` : ''}
     <h3 class="steps-title">How it works</h3>
     ${swipeCards('steps', [
@@ -1277,7 +1311,8 @@ function renderSets() {
     html += `<p class="center small muted" style="margin-top:20px">Enjoying Last Brick? <a href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a></p>`;
   }
   $('#view').innerHTML = html;
-  $('#addBtn').onclick = () => go(figs ? '#addfig' : '#add');
+  // Minifigures can still be scanned without an account; the check happens when adding.
+  $('#addBtn').onclick = () => { if (figs || accountGate(() => go('#add'))) go(figs ? '#addfig' : '#add'); };
   bindFigHints(renderSets);
   document.querySelectorAll('#collection button').forEach((b) => {
     b.onclick = () => { ui.collection = b.dataset.c; ui.setSearch = ''; savePref('collection', b.dataset.c); renderSets(); };
@@ -1335,6 +1370,7 @@ function renderAdd() {
     const num = normaliseSetNum(input.value);
     if (!num) return toast('Enter a set number');
     if (state.sets[num]) return go('#set/' + encodeURIComponent(num));
+    if (!accountGate(() => submit())) return;
     const btn = $('#fetchBtn');
     btn.disabled = true;
     $('#addStatus').innerHTML = '<div class="spinner"></div><p class="center muted">Downloading parts list…</p>';
@@ -1461,6 +1497,7 @@ function bindFigHints(rerender) {
 // Moves several figures into one set (adding the set first if needed), with one Undo.
 async function moveFigsToSet(figs, info, btn) {
   const owned = state.sets[info.setNum] && !isFig(state.sets[info.setNum]);
+  if (!owned && !accountGate()) return;
   const names = figs.map((f) => f.name.split(',')[0]);
   if (!await askConfirm({
     title: owned ? `Move ${names.length === 1 ? names[0] : `${names.length} minifigures`} into ${info.name}?` : `Add ${info.name} and move ${names.length} minifigures into it?`,
@@ -1797,6 +1834,7 @@ function bindFigSets(fig) {
   document.querySelectorAll('[data-move-to]').forEach((b) => { b.onclick = () => moveFigToSet(fig, b.dataset.moveTo); });
   document.querySelectorAll('[data-add-move]').forEach((b) => {
     b.onclick = async () => {
+      if (!accountGate()) return;
       const num = b.dataset.addMove;
       const info = fig.inSets.find((x) => x.setNum === num);
       if (!await askConfirm({
@@ -2207,6 +2245,7 @@ async function showFigPreview(figNum, picture = '') {
   if ($('#figOpen')) $('#figOpen').onclick = open;
   if ($('#figAnother')) {
     $('#figAnother').onclick = () => {
+      if (!accountGate(() => showFigPreview(figNum, picture))) return;
       const mine = state.sets[fig.setNum];
       setFigCount(mine, (mine.count || 1) + 1);
       const sp = scanned && mine.parts.find((p) => p.key === scanned.key);
@@ -2218,6 +2257,7 @@ async function showFigPreview(figNum, picture = '') {
   }
   if ($('#figAddBtn')) {
     $('#figAddBtn').onclick = () => {
+      if (!accountGate(() => showFigPreview(figNum, picture))) return;
       fig.addedAt = Date.now();
       if (scanned) scanned.have = Math.min(scanned.qty, 1);
       state.sets[fig.setNum] = fig;
@@ -3178,8 +3218,7 @@ function renderAccountCard() {
     busy(true);
     try {
       await logIn(c.email, c.password);
-      toast('Logged in — your sets are backed up');
-      renderSettings();
+      authDone('Logged in — your sets are backed up');
     } catch (e) { toast(e.message); busy(false); }
   };
   $('#registerBtn').onclick = async () => {
@@ -3193,8 +3232,7 @@ function renderAccountCard() {
     busy(true);
     try {
       if (await register(c.email, c.password)) {
-        toast('Account created — your sets are backed up');
-        renderSettings();
+        authDone('Account created — your sets are backed up');
       } else {
         busy(false);
         openSheet(`
