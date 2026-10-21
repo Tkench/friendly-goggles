@@ -180,27 +180,42 @@ async function searchFigs(q: string) {
 // shorter name.
 // deno-lint-ignore no-explicit-any
 async function figsFromPackets(name: string): Promise<any[]> {
+  // Only a packet whose name contains every word searched for counts (so "Emmet"
+  // alone can't pick some other Emmet's packet).
+  const words = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => w.length > 1);
+  const want = words(name);
+  if (want.length < 2) return [];
   const page = await rebrickable(`/sets/?page_size=8&search=${encodeURIComponent(name)}`);
   const out = [];
   // deno-lint-ignore no-explicit-any
-  for (const set of page.results.filter((x: any) => (x.num_parts ?? 0) <= 40).slice(0, 4)) {
+  const packets = page.results.filter((x: any) => (x.num_parts ?? 0) <= 40 && want.every((w) => words(x.name || '').includes(w)));
+  for (const set of packets.slice(0, 4)) {
     const figs = await allPages(`/sets/${encodeURIComponent(set.set_num)}/minifigs/?page_size=20`, 20);
     if (figs.length === 1) out.push({ ...trimFig({ ...figs[0], name: figs[0].set_name ?? figs[0].name }), exact: true });
   }
   return out;
 }
 
+// Shorter versions of a scanner's figure name, e.g. "Awesome Remix Emmet, The LEGO
+// Movie 2 (Minifigure Only without Stand and Accessories)" → "Awesome Remix Emmet".
+function nameVariants(name: string): string[] {
+  const noBrackets = name.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  return [...new Set([name.trim(), noBrackets, noBrackets.split(/,| - /)[0].trim()])].filter((t) => t.length > 2);
+}
+
 async function findFigs(id: string, name: string) {
   const results = new Map();
   const add = (list: { set_num: string }[]) => list.forEach((f) => results.has(f.set_num) || results.set(f.set_num, f));
-  if (name.length > 2) {
+  for (const n of nameVariants(name)) {
     try {
-      add(await cached('figpack:' + name.toLowerCase(), KEEP_FOR, async () => ({ results: await figsFromPackets(name) })).then((d) => (d as { results: { set_num: string }[] }).results));
+      const packet = await cached('figpack:' + n.toLowerCase(), KEEP_FOR, async () => ({ results: await figsFromPackets(n) })) as { results: { set_num: string }[] };
+      add(packet.results);
+      if (packet.results.length) break;
     } catch (e) {
       console.error('packet search failed', e);
     }
   }
-  const tries = [id, name, name.split(/ - |,|\(/)[0]].map((t) => t.trim()).filter((t) => t.length > 2);
+  const tries = [id, ...nameVariants(name)];
   for (const t of [...new Set(tries)]) {
     if (results.size >= 10) break;
     const found = await cached('figsearch:' + t.toLowerCase(), KEEP_FOR, () => searchFigs(t)) as { results: { set_num: string }[] };

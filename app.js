@@ -577,8 +577,10 @@ async function figIndexPart(partNum) {
 
 // Matches a name from the scanner (BrickLink's wording, e.g. "Awesome Remix Emmet")
 // to Rebrickable's figures by shared words, best matches first.
-const NAME_SKIP = new Set(['with', 'and', 'the', 'of', 'a', 'an', 'in', 'on', 'minifig', 'minifigure', 'figure']);
-const nameWords = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => w.length > 1 && !NAME_SKIP.has(w));
+const NAME_SKIP = new Set(['with', 'and', 'the', 'of', 'a', 'an', 'in', 'on', 'minifig', 'minifigure', 'figure',
+  // BrickLink adds these to collectable figures: "(Minifigure Only without Stand and Accessories)", "The LEGO Movie 2"
+  'only', 'without', 'stand', 'accessories', 'complete', 'set', 'lego', 'series', 'collectible', 'collectable']);
+const nameWords = (s) => String(s).toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => w.length > 1 && !NAME_SKIP.has(w));
 
 // How many of the scanner's words appear in a figure's name (whole words, or
 // one starting the other like "pirate"/"pirates" — so "trucker" ≠ "Strucker").
