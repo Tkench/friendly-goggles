@@ -624,3 +624,12 @@ body.welcome .topbar {
 .lf-set .sname { flex: 1; }
 .lf-set .btn { flex: none; }
 .crow-name, .prow .pname { overflow-wrap: anywhere; }
+
+/* Tip cards (welcome, Scan, Add a minifigure): soft red so they stand out */
+.steps li { background: #fdecec; border: 2px solid #f5b5b5; box-shadow: none; }
+.steps .step-n { color: #d01012; opacity: .55; }
+.steps .step-text { color: var(--text); opacity: .75; }
+@media (prefers-color-scheme: dark) {
+  .steps li { background: #341616; border-color: #6a2525; }
+  .steps .step-n { color: #ff6b66; opacity: .8; }
+}

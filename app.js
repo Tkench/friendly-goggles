@@ -2890,11 +2890,49 @@ function scanArt(cls = 'scan-art') {
   </svg>`;
 }
 
+/* Tip pictures for the Scan page, drawn in the same brick style as the logo. */
+const tipBrick = (x, y, w, colour = 'r', studs = 2) => {
+  const [f, e] = BRICK_COLOURS[colour];
+  const gap = w / studs;
+  return `${Array.from({ length: studs }, (_, i) => `<rect x="${x + gap * i + gap / 2 - 3.5}" y="${y - 4}" width="7" height="5" rx="1.5" fill="${f}" stroke="${e}" stroke-width="1.3"/>`).join('')}
+    <rect x="${x}" y="${y}" width="${w}" height="12" rx="2.2" fill="${f}" stroke="${e}" stroke-width="1.6"/>
+    <rect x="${x + 2.5}" y="${y + 2.2}" width="${w - 5}" height="2" rx="1" fill="#fff" opacity=".3"/>`;
+};
+const TIP_ART = {
+  // One brick on its own, with a soft shadow.
+  one: `<svg class="step-svg" viewBox="0 0 48 48" aria-hidden="true">
+    <ellipse cx="24" cy="38" rx="15" ry="2.6" fill="#000" opacity=".1"/>
+    ${tipBrick(11, 22, 26, 'r', 2)}
+  </svg>`,
+  // A sheet of white paper with a brick sitting on it.
+  paper: `<svg class="step-svg" viewBox="0 0 48 48" aria-hidden="true">
+    <path d="M6 34 L18 14 H44 L34 34 Z" fill="#fff" stroke="#b9bcc6" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M6 34 V37 H34 V34" fill="#e3e5ea" stroke="#b9bcc6" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M34 34 L44 14 V17 L34 37" fill="#e3e5ea" stroke="#b9bcc6" stroke-width="1.6" stroke-linejoin="round"/>
+    ${tipBrick(17, 20, 14, 'b', 2)}
+  </svg>`,
+  // A round yellow sun with chunky rays.
+  light: `<svg class="step-svg" viewBox="0 0 48 48" aria-hidden="true">
+    <g fill="#f6c31b" stroke="#c99a06" stroke-width="1.4">
+      ${[0, 45, 90, 135, 180, 225, 270, 315].map((a) => `<rect x="21.5" y="2.5" width="5" height="8" rx="2.5" transform="rotate(${a} 24 24)"/>`).join('')}
+      <circle cx="24" cy="24" r="10.5"/>
+    </g>
+    <circle cx="20.5" cy="20.5" r="3" fill="#fff" opacity=".45"/>
+  </svg>`,
+  // A 2×2 brick seen from the top with its studs, and a turn-over arrow.
+  side: `<svg class="step-svg" viewBox="0 0 48 48" aria-hidden="true">
+    <rect x="9" y="11" width="26" height="26" rx="3" fill="${BRICK_COLOURS.g[0]}" stroke="${BRICK_COLOURS.g[1]}" stroke-width="1.6"/>
+    ${[[16, 18], [28, 18], [16, 30], [28, 30]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="4.3" fill="${BRICK_COLOURS.g[0]}" stroke="${BRICK_COLOURS.g[1]}" stroke-width="1.4"/><circle cx="${x - 1.2}" cy="${y - 1.2}" r="1.3" fill="#fff" opacity=".4"/>`).join('')}
+    <path d="M39 30 A12 12 0 0 0 39 12" fill="none" stroke="var(--brand)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M35 11.5 L39.5 11 L40 15.5" fill="none" stroke="var(--brand)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`,
+};
+
 const SCAN_TIPS = [
-  ['☝️', 'One piece only', 'Put a single piece in the photo. It doesn\'t need to fill the frame: the app zooms in on it for you.'],
-  ['📄', 'Plain background', 'A sheet of white paper is perfect, so the piece stands out.'],
-  ['💡', 'Good light', 'Daylight is best; avoid strong shadows.'],
-  ['🔍', 'Best side up', 'Show the studs, holes or printed side.'],
+  [TIP_ART.one, 'One piece only', 'Put a single piece in the photo. It doesn\'t need to fill the frame: the app zooms in on it for you.'],
+  [TIP_ART.paper, 'Plain background', 'A sheet of white paper is perfect, so the piece stands out.'],
+  [TIP_ART.light, 'Good light', 'Daylight is best; avoid strong shadows.'],
+  [TIP_ART.side, 'Best side up', 'Show the studs, holes or printed side.'],
 ];
 
 function renderScan() {
