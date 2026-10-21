@@ -1850,10 +1850,21 @@ function renderFigOut() {
   return h;
 }
 
+// Just the hips and legs of a minifigure (red hips, blue legs), for the legs tip.
+function figLegsIcon(cls = 'step-svg') {
+  const [b, be] = BRICK_COLOURS.b, [r, re] = BRICK_COLOURS.r;
+  return `<svg class="${cls}" viewBox="0 0 40 46" aria-hidden="true">
+    <rect x="6" y="4" width="28" height="7" rx="1.5" fill="${r}" stroke="${re}" stroke-width="1.6"/>
+    <rect x="6.5" y="10" width="13" height="31" rx="2" fill="${b}" stroke="${be}" stroke-width="1.6"/>
+    <rect x="20.5" y="10" width="13" height="31" rx="2" fill="${b}" stroke="${be}" stroke-width="1.6"/>
+    <rect x="9" y="6" width="22" height="2" rx="1" fill="#fff" opacity=".3"/>
+  </svg>`;
+}
+
 const FIG_TIPS = [
   ['👕', 'Printed torsos work best', 'A torso with a design usually points to just one or two figures.'],
-  ['🧍', 'Whole figure? Face the front', 'Stand it up on white paper, with its face and torso showing.'],
-  ['🦵', 'Legs: two colours', "Pick the legs colour, then the hips (the top part). Plain legs are in hundreds of figures, so you'll narrow it down next."],
+  [emptyFig('step-svg'), 'Whole figure? Face the front', 'Stand it up on white paper, with its face and torso showing.'],
+  [figLegsIcon(), 'Legs: two colours', "Pick the legs colour, then the hips (the top part). Plain legs are in hundreds of figures, so you'll narrow it down next."],
   ['🔎', 'Lots of matches?', 'Type part of a name, like “knight” or “police”, to narrow the list.'],
   ['💡', 'Good light', 'Daylight is best, on a plain background with no strong shadows.'],
 ];

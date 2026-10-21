@@ -604,3 +604,4 @@ body.welcome .topbar {
 .scan-ico.btn-ico { display: inline-block; width: 26px; height: 24px; vertical-align: -6px; margin-right: 4px; }
 .scan-opt .opt-ico { height: 46px; }
 .scan-opt .opt-ico .scan-ico { width: 50px; height: 46px; }
+.step-svg { width: 40px; height: 48px; display: block; }
