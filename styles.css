@@ -617,3 +617,10 @@ body.welcome .topbar {
 }
 /* The two minifigure scan lines move out of step with each other */
 #scanPiece .ico-scan-line { animation-delay: -.9s; animation-duration: 2.3s; }
+/* Rows never grow wider than the screen: long names shorten with "…" or wrap */
+.part-list { grid-template-columns: minmax(0, 1fr); }
+.prow, .crow { min-width: 0; }
+.lf-set { min-width: 0; }
+.lf-set .sname { flex: 1; }
+.lf-set .btn { flex: none; }
+.crow-name, .prow .pname { overflow-wrap: anywhere; }
