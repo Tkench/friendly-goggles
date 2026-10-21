@@ -660,3 +660,9 @@ body.welcome .topbar {
 .rescan-row { display: flex; gap: 8px; margin: -4px 0 10px; }
 .rescan-row .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .rescan-row .scan-ico.btn-ico { width: 24px; height: 22px; margin-right: 2px; vertical-align: middle; }
+/* "In King's Castle: you have this set" on minifigure matches */
+.coll-tag { margin-top: 6px; font-size: 12px; font-weight: 700; border-radius: 8px; padding: 4px 7px; line-height: 1.3; }
+.coll-tag.set { background: var(--ok-bg); color: var(--ok); }
+.coll-tag.fig { background: #e2effc; color: #1d5ea3; }
+@media (prefers-color-scheme: dark) { .coll-tag.fig { background: #0f2438; color: #6fb0f0; } }
+.coll-note { color: var(--ok); font-weight: 600; margin: 0 0 10px; }

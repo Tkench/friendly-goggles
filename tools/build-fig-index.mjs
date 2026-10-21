@@ -9,8 +9,9 @@
 //                  Scanners call plain legs 970c00 whatever the colour, but Rebrickable
 //                  numbers legs by leg colour (970c28 = blue legs) with the hips colour as
 //                  the piece colour, so legs get their own list, found by colour.
-//   figs.json      [[fig_num, name, image], …] every minifigure, so a whole-figure scan
-//                  (which gives BrickLink's name) can be matched to Rebrickable's names
+//   figs.json      [[fig_num, name, image, [set_num, …]], …] every minifigure and the sets
+//                  it came in, so a whole-figure scan (which gives BrickLink's name) can be
+//                  matched to Rebrickable's names, and matches from your sets shown first
 //   meta.json      when it was built and how big it is
 // Parts are spread over 256 files by a hash of the part number (see shardOf,
 // which app.js repeats), so a scan downloads only one small file.
@@ -80,13 +81,23 @@ const figs = new Map(); // fig_num -> [fig_num, name, image, pieces]
 await eachRow('minifigs.csv.gz', (r) => figs.set(r.fig_num, [r.fig_num, r.name, short(r.img_url), Number(r.num_parts) || 0]));
 const figInv = new Map(); // inventory id -> fig_num
 const latest = new Map(); // fig_num -> { id, version }
+const setOfInv = new Map(); // inventory id -> set_num (sets only)
 await eachRow('inventories.csv.gz', (r) => {
-  if (!figs.has(r.set_num)) return;
+  if (!figs.has(r.set_num)) { if (!r.set_num.startsWith('fig-')) setOfInv.set(r.id, r.set_num); return; }
   const v = Number(r.version) || 1;
   const cur = latest.get(r.set_num);
   if (!cur || v > cur.version) latest.set(r.set_num, { id: r.id, version: v });
 });
 for (const [fig, { id }] of latest) figInv.set(id, fig);
+
+// Which sets each minifigure came in.
+const figSets = new Map(); // fig_num -> Set(set_num)
+await eachRow('inventory_minifigs.csv.gz', (r) => {
+  const set = setOfInv.get(r.inventory_id);
+  if (!set || !figs.has(r.fig_num)) return;
+  if (!figSets.has(r.fig_num)) figSets.set(r.fig_num, new Set());
+  figSets.get(r.fig_num).add(set);
+});
 
 // 2. Which pieces (in which colour) each of those inventories holds.
 const index = new Map(); // part_num -> { n, c: { colour: { i, f: Set(fig_num) } } }
@@ -123,7 +134,7 @@ for (let i = 0; i < 256; i++) {
   fs.writeFileSync(path.join(OUT, 'p', key + '.json'), JSON.stringify(shards.get(key) || {}));
 }
 fs.writeFileSync(path.join(OUT, 'colors.json'), JSON.stringify(colours));
-fs.writeFileSync(path.join(OUT, 'figs.json'), JSON.stringify([...latest.keys()].sort().map((f) => figs.get(f).slice(0, 3))));
+fs.writeFileSync(path.join(OUT, 'figs.json'), JSON.stringify([...latest.keys()].sort().map((f) => [...figs.get(f).slice(0, 3), [...(figSets.get(f) || [])].sort()])));
 
 const legs = {};
 for (const [num, p] of index) {

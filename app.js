@@ -1927,6 +1927,33 @@ function bindFigSets(fig) {
   });
 }
 
+/* Which sets each minifigure came in (from figs.json in the weekly lookup), so
+ * matches linked to your collection can be tagged and shown first. */
+let figSetMap = null;
+async function loadFigSets() {
+  if (figSetMap) return figSetMap;
+  const all = await figIndexFile('figs.json');
+  if (all) figSetMap = new Map(all.map((f) => [f[0], f[3] || []]));
+  return figSetMap;
+}
+
+// { kind: 'set' | 'fig', text } if a figure comes from a set you have, or from
+// the same set as one of your other minifigures.
+function collectionLink(figNum) {
+  const sets = (figSetMap && figSetMap.get(figNum)) || [];
+  if (!sets.length) return null;
+  for (const n of sets) {
+    const set = state.sets[n];
+    if (set && !isFig(set)) return { kind: 'set', text: `In ${set.name}: you have this set` };
+  }
+  for (const mine of Object.values(state.sets)) {
+    if (!isFig(mine) || mine.setNum === figNum) continue;
+    const theirs = (figSetMap && figSetMap.get(mine.setNum)) || (mine.inSets || []).map((x) => x.setNum);
+    if (theirs.some((n) => sets.includes(n))) return { kind: 'fig', text: `Same set as your ${mine.name.split(',')[0]}` };
+  }
+  return null;
+}
+
 function figTiles(list) {
   return `<div class="set-grid fig-grid">${list.map((f) => `
     <div class="set-tile" data-fig="${esc(f.set_num)}">
@@ -1937,6 +1964,7 @@ function figTiles(list) {
       <div class="tile-body">
         <div class="tile-name">${esc(f.name)}</div>
         <div class="muted small">#${esc(f.set_num)}${f.num_parts ? ` · ${plural(f.num_parts, 'piece', 'pieces')}` : ''}</div>
+        ${f.link ? `<div class="coll-tag ${f.link.kind}">${f.link.kind === 'set' ? '🧱' : '🙂'} ${esc(f.link.text)}</div>` : ''}
       </div>
     </div>`).join('')}</div>`;
 }
@@ -2030,7 +2058,13 @@ function renderFigOutInner() {
   }
   if (a.step === 'results') {
     const q = (a.filter || '').toLowerCase();
-    const list = q ? a.results.filter((f) => f.name.toLowerCase().includes(q) || f.set_num.includes(q)) : a.results;
+    // Figures linked to your collection first: from a set you have, then from the
+    // same set as one of your minifigures; otherwise the order stays as it was.
+    const rank = { set: 0, fig: 1 };
+    const linked = a.results.map((f, i) => ({ ...f, link: collectionLink(f.set_num), i }))
+      .sort((x, y) => (x.link ? rank[x.link.kind] : 2) - (y.link ? rank[y.link.kind] : 2) || x.i - y.i);
+    const list = q ? linked.filter((f) => f.name.toLowerCase().includes(q) || f.set_num.includes(q)) : linked;
+    const nLinked = linked.filter((f) => f.link).length;
     h += `<h3 class="steps-title">${esc(a.resultsTitle)}</h3>`;
     if (a.resultsSub) h += `<p class="muted small">${esc(a.resultsSub)}</p>`;
     if (a.resultsHint) h += `<div class="verdict-card ${a.results.length > 12 ? 'no' : 'yes'}"><span class="verdict-ico">${a.results.length > 12 ? '💡' : '✅'}</span><div><b>${esc(a.resultsHint[0])}</b><span>${esc(a.resultsHint[1])}</span></div></div>`;
@@ -2043,6 +2077,7 @@ function renderFigOutInner() {
       </div>`;
     }
     if (a.results.length > 12) h += `<input class="field" id="figFilter" type="search" placeholder="Narrow down by name, e.g. knight" value="${esc(a.filter || '')}" autocomplete="off">`;
+    if (nLinked) h += `<p class="coll-note small">✨ ${nLinked === 1 ? 'One of these is' : `${nLinked} of these are`} linked to your collection, shown first.</p>`;
     h += list.length ? figTiles(list.slice(0, FIG_SHOW_MAX)) : `<div class="empty">No figures match “${esc(a.filter)}”.</div>`;
     if (list.length > FIG_SHOW_MAX) h += `<p class="center muted small">Showing ${FIG_SHOW_MAX} of ${list.length}. Type above to narrow it down.</p>`;
     if (a.back) h += `<button class="link-btn" data-back="${esc(a.back)}">‹ ${a.back === 'colours' || a.back === 'hips' || a.back === 'legcolours' ? 'Pick a different colour' : 'Pick a different match'}</button>`;
@@ -2112,7 +2147,7 @@ async function figStep(loadingText, work) {
   Object.assign(figAdd, { loading: loadingText, error: '', errorTitle: '', errorIcon: '' });
   refreshFigOut({ scroll: true });
   try {
-    await work();
+    await Promise.all([work(), loadFigSets()]);
   } catch (e) {
     figAdd.error = e instanceof TypeError ? 'No connection. Check your internet and try again.' : e.message;
   }
