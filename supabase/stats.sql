@@ -2,8 +2,10 @@
 -- Paste this whole file into Supabase → SQL Editor → New query, then press Run.
 
 -- 1. Visits: one row per device per day the app is opened. No IP address, no
---    account, nothing that identifies a person: just the day and three yes/no
---    answers (first time on this device? logged in? installed on the home screen?).
+--    account, nothing that identifies a person: just the day, three yes/no
+--    answers (first time on this device? logged in? installed on the home screen?)
+--    and where the visitor came from (a website name like "facebook.com", or a
+--    tag from the link such as lastbrick.co.uk/?ref=reddit).
 create table if not exists public.visits (
   id bigint generated always as identity primary key,
   day date not null default current_date,
@@ -11,6 +13,7 @@ create table if not exists public.visits (
   has_account boolean not null default false,
   installed boolean not null default false
 );
+alter table public.visits add column if not exists source text check (length(source) <= 60);
 alter table public.visits enable row level security;
 
 drop policy if exists "Anyone can count a visit" on public.visits;
@@ -82,6 +85,11 @@ begin
       'month', (select count(*) from public.visits where day > current_date - 30),
       'newMonth', (select count(*) from public.visits where day > current_date - 30 and new_visitor),
       'installedMonth', (select count(*) from public.visits where day > current_date - 30 and installed),
+      'sources', (select coalesce(jsonb_agg(t), '[]') from (
+        select coalesce(nullif(source, ''), 'direct') as source, count(*) as visits,
+               count(*) filter (where new_visitor) as new_visitors
+        from public.visits where day > current_date - 30
+        group by 1 order by count(*) desc limit 12) t),
       'byDay', (select jsonb_agg(jsonb_build_array(g.d, coalesce(v.n, 0)) order by g.d)
                 from generate_series(current_date - 29, current_date, interval '1 day') g(d)
                 left join (select day, count(*) n from public.visits group by day) v on v.day = g.d::date)

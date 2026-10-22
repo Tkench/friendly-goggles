@@ -20,6 +20,9 @@ const TIP_URL = '';
 // data private. Accounts stay hidden while these are empty.
 const SUPABASE_URL = 'https://nioytuzuejdzznaxvlic.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_vWTdvZvwYgGsKhE0m7DbPg_MP_UbMqr';
+// Cloudflare Web Analytics (cookie-free visitor stats). Paste the site's token here
+// to turn it on; while it's empty nothing is loaded.
+const CF_ANALYTICS_TOKEN = '';
 
 /* ---------- State ---------- */
 
@@ -3358,6 +3361,40 @@ const reportLink = (id, text = 'Wrong match? Tell us') => `<p class="center repo
  * answers (first time on this device? logged in? installed?). No account or
  * anything identifying is sent. The Stats page is only shown to admin accounts. */
 
+// Where this visit came from: a tag in the link (lastbrick.co.uk/?ref=facebook)
+// or the website that linked here, as a short name. Worked out once, on arrival.
+const VISIT_SOURCE = (() => {
+  try {
+    const url = new URL(location.href);
+    const tag = (url.searchParams.get('ref') || url.searchParams.get('utm_source') || '').toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 40);
+    if (url.searchParams.has('ref') || url.searchParams.has('utm_source')) {
+      ['ref', 'utm_source', 'utm_medium', 'utm_campaign'].forEach((k) => url.searchParams.delete(k));
+      history.replaceState(null, '', url.pathname + url.search + url.hash); // tidy the address bar
+    }
+    if (tag) return tag;
+    const host = new URL(document.referrer).hostname.toLowerCase().replace(/^(www|m|l|lm|mobile|out)\./, '');
+    if (!host || host === location.hostname) return '';
+    if (/(^|\.)google\./.test(host)) return 'google';
+    if (/(^|\.)(facebook\.com|fb\.com|fb\.me)$/.test(host)) return 'facebook';
+    if (/(^|\.)reddit\.com$/.test(host)) return 'reddit';
+    if (/(^|\.)instagram\.com$/.test(host)) return 'instagram';
+    if (host === 't.co' || /(^|\.)(twitter|x)\.com$/.test(host)) return 'x (twitter)';
+    if (/(^|\.)bing\.com$/.test(host)) return 'bing';
+    return host.slice(0, 60);
+  } catch {
+    return '';
+  }
+})();
+
+function loadCloudflareAnalytics() {
+  if (!CF_ANALYTICS_TOKEN || /^(localhost|127\.)/.test(location.hostname)) return;
+  const s = document.createElement('script');
+  s.defer = true;
+  s.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+  s.dataset.cfBeacon = JSON.stringify({ token: CF_ANALYTICS_TOKEN, spa: true });
+  document.head.appendChild(s);
+}
+
 function countVisit() {
   if (!syncEnabled() || /^(localhost|127\.)/.test(location.hostname)) return;
   const today = new Date().toISOString().slice(0, 10); // matches the database's day (UTC)
@@ -3365,7 +3402,7 @@ function countVisit() {
   const installed = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   sbFetch('/rest/v1/visits', {
     method: 'POST', headers: { Prefer: 'return=minimal' },
-    body: { new_visitor: !loadPref('seen', ''), has_account: !!session, installed },
+    body: { new_visitor: !loadPref('seen', ''), has_account: !!session, installed, source: VISIT_SOURCE || null },
   }).then(() => { savePref('lastVisit', today); savePref('seen', '1'); }).catch(() => { /* try again next time */ });
 }
 
@@ -3464,6 +3501,19 @@ async function renderStats() {
       <h2>Visitors per day <span class="muted small">last 30 days</span></h2>
       ${barChart('visitChart', v.byDay, visitsOpts)}
       <p class="muted small">A visitor is one phone or computer opening the app on a day. ${fmtNum(v.installedMonth)} of the last 30 days' visits were from the app on a home screen.</p>
+    </div>
+    <div class="card">
+      <h2>Where visitors came from <span class="muted small">last 30 days</span></h2>
+      ${(v.sources || []).length ? (() => {
+        const top = Math.max(...v.sources.map((x) => x.visits));
+        const name = (src) => (src === 'direct' ? 'Direct (typed in, home screen or bookmark)' : src);
+        return v.sources.map((x) => `
+          <div class="src-row">
+            <div class="src-top"><b>${esc(name(x.source))}</b><span>${fmtNum(x.visits)}${x.new_visitors ? ` <em class="muted">· ${fmtNum(x.new_visitors)} new</em>` : ''}</span></div>
+            <div class="src-bar"><span style="width:${Math.max(2, Math.round((x.visits / top) * 100))}%"></span></div>
+          </div>`).join('');
+      })() : '<p class="muted small">Nothing yet.</p>'}
+      <p class="muted small">Tip: share a tagged link in each post, e.g. <b>lastbrick.co.uk/?ref=facebook</b> or <b>?ref=reddit</b>, to see exactly which one brought people in.</p>
     </div>
 
     <h3 class="steps-title">Accounts</h3>
@@ -3721,6 +3771,7 @@ $('#backBtn').onclick = () => (history.length > 1 ? history.back() : go('#sets')
 
 render();
 handleAuthRedirect().then(() => { syncNow(); countVisit(); });
+loadCloudflareAnalytics();
 // Pick up changes from other devices when the app is reopened or back online.
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
 window.addEventListener('online', () => syncNow());

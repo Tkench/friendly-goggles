@@ -690,3 +690,11 @@ body.welcome .topbar {
 .rank-n { width: 18px; text-align: right; color: var(--muted); font-weight: 700; flex: none; }
 .report-row { border-top: 1px solid var(--line); padding: 8px 0; overflow-wrap: anywhere; }
 .report-row:first-of-type { border-top: 0; }
+/* Where visitors came from */
+.src-row { padding: 6px 0; }
+.src-top { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.src-top b { overflow-wrap: anywhere; font-weight: 600; }
+.src-top span { flex: none; font-weight: 700; }
+.src-top em { font-style: normal; font-weight: 500; }
+.src-bar { height: 8px; background: var(--chip); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+.src-bar span { display: block; height: 100%; background: var(--brand); border-radius: 4px; }
