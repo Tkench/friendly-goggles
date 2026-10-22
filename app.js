@@ -22,7 +22,7 @@ const SUPABASE_URL = 'https://nioytuzuejdzznaxvlic.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_vWTdvZvwYgGsKhE0m7DbPg_MP_UbMqr';
 // Cloudflare Web Analytics (cookie-free visitor stats). Paste the site's token here
 // to turn it on; while it's empty nothing is loaded.
-const CF_ANALYTICS_TOKEN = '';
+const CF_ANALYTICS_TOKEN = 'd047238bacb6443ca8a2fce1abf3b394';
 
 /* ---------- State ---------- */
 
