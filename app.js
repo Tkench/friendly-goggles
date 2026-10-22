@@ -892,8 +892,8 @@ window.addEventListener('hashchange', () => { closeSheet(); render(); window.scr
 
 function render() {
   const r = route();
-  const sub = r.name === 'set' || r.name === 'add' || r.name === 'addfig';
-  const tab = sub ? 'sets' : r.name;
+  const sub = r.name === 'set' || r.name === 'add' || r.name === 'addfig' || r.name === 'stats';
+  const tab = r.name === 'stats' ? 'settings' : sub ? 'sets' : r.name;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   const back = $('#backBtn');
   back.classList.toggle('hidden', !sub);
@@ -908,6 +908,7 @@ function render() {
     case 'missing': return renderMissing();
     case 'scan': return renderScan();
     case 'settings': return renderSettings();
+    case 'stats': return renderStats();
     default: return renderSets();
   }
 }
@@ -3352,6 +3353,171 @@ function showReportSheet({ kind, title, intro, context = {}, photoUrl = '' }) {
 
 const reportLink = (id, text = 'Wrong match? Tell us') => `<p class="center report-link"><button class="link-btn" ${id}>⚑ ${text}</button></p>`;
 
+/* ---------- Visit counter & private Stats page (supabase/stats.sql) ----------
+ * Once a day per device the app records a visit: just the day and three yes/no
+ * answers (first time on this device? logged in? installed?). No account or
+ * anything identifying is sent. The Stats page is only shown to admin accounts. */
+
+function countVisit() {
+  if (!syncEnabled() || /^(localhost|127\.)/.test(location.hostname)) return;
+  const today = new Date().toISOString().slice(0, 10); // matches the database's day (UTC)
+  if (loadPref('lastVisit', '') === today) return;
+  const installed = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  sbFetch('/rest/v1/visits', {
+    method: 'POST', headers: { Prefer: 'return=minimal' },
+    body: { new_visitor: !loadPref('seen', ''), has_account: !!session, installed },
+  }).then(() => { savePref('lastVisit', today); savePref('seen', '1'); }).catch(() => { /* try again next time */ });
+}
+
+let adminCheck = null; // { userId, yes }
+async function isAdmin() {
+  if (!session) return false;
+  if (adminCheck && adminCheck.userId === session.userId) return adminCheck.yes;
+  try {
+    const yes = await sbFetch('/rest/v1/rpc/is_admin', { method: 'POST', auth: true, body: {} });
+    adminCheck = { userId: session.userId, yes: yes === true };
+  } catch {
+    return false; // stats not set up yet
+  }
+  return adminCheck.yes;
+}
+
+const fmtNum = (n) => Number(n || 0).toLocaleString('en-GB');
+const shortDay = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+// A simple one-colour bar chart. Tap a bar to see its value in the line below.
+function barChart(id, points, { label, unit }) {
+  const max = Math.max(1, ...points.map((p) => p[1]));
+  const W = 300, H = 110, gap = 2, bw = (W - gap * (points.length - 1)) / points.length;
+  const bars = points.map(([when, n], i) => {
+    const h = n ? Math.max(3, (n / max) * (H - 14)) : 0;
+    const x = i * (bw + gap), y = H - h, r = Math.min(4, bw / 2, h);
+    const d = h ? `M${x} ${H} V${y + r} Q${x} ${y} ${x + r} ${y} H${x + bw - r} Q${x + bw} ${y} ${x + bw} ${y + r} V${H} Z` : '';
+    return `<g class="bar" data-i="${i}"><rect x="${x}" y="0" width="${bw + gap}" height="${H}" fill="transparent"/>${d ? `<path d="${d}"/>` : ''}<title>${esc(label(when))}: ${n} ${esc(unit(n))}</title></g>`;
+  }).join('');
+  const total = points.reduce((t, p) => t + p[1], 0);
+  return `
+    <figure class="chart" id="${id}">
+      <svg viewBox="0 0 ${W} ${H + 1}" preserveAspectRatio="none" role="img" aria-label="${esc(`${total} ${unit(total)}`)}">
+        <line x1="0" y1="${H - (H - 14)}" x2="${W}" y2="${H - (H - 14)}" class="grid"/>
+        ${bars}
+        <line x1="0" y1="${H + 0.5}" x2="${W}" y2="${H + 0.5}" class="axis"/>
+      </svg>
+      <div class="chart-axis small muted"><span>${esc(label(points[0][0]))}</span><span>top: ${max}</span><span>${esc(label(points[points.length - 1][0]))}</span></div>
+      <figcaption class="small" data-total="${esc(`${fmtNum(total)} ${unit(total)} in total`)}">${esc(`${fmtNum(total)} ${unit(total)} in total`)}</figcaption>
+    </figure>`;
+}
+
+function bindBarChart(id, points, { label, unit }) {
+  const fig = $('#' + id);
+  if (!fig) return;
+  const cap = fig.querySelector('figcaption');
+  fig.querySelectorAll('.bar').forEach((g) => {
+    g.onclick = () => {
+      const [when, n] = points[Number(g.dataset.i)];
+      const on = g.classList.contains('on');
+      fig.querySelectorAll('.bar.on').forEach((x) => x.classList.remove('on'));
+      if (on) { cap.textContent = cap.dataset.total; return; }
+      g.classList.add('on');
+      cap.innerHTML = `<b>${esc(label(when))}:</b> ${fmtNum(n)} ${esc(unit(n))}`;
+    };
+  });
+}
+
+function statTile(value, label, sub = '') {
+  return `<div class="stat-tile"><b>${value}</b><span>${esc(label)}</span>${sub ? `<em>${esc(sub)}</em>` : ''}</div>`;
+}
+
+async function renderStats() {
+  setTitle('Stats');
+  if (!session) { go('#settings'); return; }
+  $('#view').innerHTML = '<div class="spinner"></div><p class="center muted">Loading stats…</p>';
+  let d;
+  try {
+    d = await sbFetch('/rest/v1/rpc/admin_stats', { method: 'POST', auth: true, body: {} });
+  } catch (e) {
+    $('#view').innerHTML = `<div class="empty">${emptyBrick()}<b>Stats aren't available</b><br>${esc(e.message)}</div>`;
+    return;
+  }
+  if (route().name !== 'stats') return;
+  const v = d.visits, a = d.accounts, c = d.collections, r = d.reports;
+  const pctFound = c.need ? Math.round((c.have / c.need) * 100) : 0;
+  const thumb = (img, fig) => `<div class="thumb">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : fig ? '🙂' : '🧱'}</div>`;
+  const visitsOpts = { label: shortDay, unit: (n) => (n === 1 ? 'visitor' : 'visitors') };
+  const signupOpts = { label: (w) => 'Week of ' + shortDay(w), unit: (n) => (n === 1 ? 'sign-up' : 'sign-ups') };
+  const rankList = (rows, fig) => (rows.length ? rows.map((x, i) => `
+      <div class="rank-row">
+        <span class="rank-n">${i + 1}</span>${thumb(x.img, fig)}
+        <div class="grow" style="min-width:0"><div class="sname"><b>${esc(x.name || x.num)}</b></div><div class="small muted">#${esc(shortSetNum(x.num))}</div></div>
+        <span class="badge ok">${x.people} ${x.people === 1 ? 'person' : 'people'}</span>
+      </div>`).join('') : '<p class="muted small">Nothing yet.</p>');
+
+  $('#view').innerHTML = `
+    <h3 class="steps-title">Visitors</h3>
+    <div class="stat-grid">
+      ${statTile(fmtNum(v.today), 'today')}
+      ${statTile(fmtNum(v.week), 'last 7 days')}
+      ${statTile(fmtNum(v.month), 'last 30 days')}
+      ${statTile(fmtNum(v.newMonth), 'new visitors', 'last 30 days')}
+    </div>
+    <div class="card">
+      <h2>Visitors per day <span class="muted small">last 30 days</span></h2>
+      ${barChart('visitChart', v.byDay, visitsOpts)}
+      <p class="muted small">A visitor is one phone or computer opening the app on a day. ${fmtNum(v.installedMonth)} of the last 30 days' visits were from the app on a home screen.</p>
+    </div>
+
+    <h3 class="steps-title">Accounts</h3>
+    <div class="stat-grid">
+      ${statTile(fmtNum(a.total), 'accounts', `${fmtNum(a.week)} new this week`)}
+      ${statTile(fmtNum(a.activeWeek), 'active this week')}
+      ${statTile(fmtNum(a.unconfirmed), 'not confirmed', 'email link not tapped')}
+      ${statTile(fmtNum(c.people), 'with a backup')}
+    </div>
+    <div class="card">
+      <h2>Sign-ups per week <span class="muted small">last 12 weeks</span></h2>
+      ${barChart('signupChart', a.byWeek, signupOpts)}
+    </div>
+
+    <h3 class="steps-title">Collections <span class="muted">(accounts only)</span></h3>
+    <div class="stat-grid">
+      ${statTile(fmtNum(c.sets), 'sets', `${fmtNum(c.complete)} complete`)}
+      ${statTile(fmtNum(c.figs), 'minifigures')}
+      ${statTile(pctFound + '%', 'pieces found', `${fmtNum(c.have)} of ${fmtNum(c.need)}`)}
+      ${statTile(c.value ? money(Number(c.value)) : '–', 'total value', 'where entered')}
+    </div>
+    <p class="muted small">Looked up by anyone (with or without an account): ${plural(c.lookedUp, 'different set', 'different sets')} and ${plural(c.figsLookedUp, 'minifigure', 'minifigures')}.</p>
+    <div class="card"><h2>Most popular sets</h2>${rankList(d.topSets, false)}</div>
+    <div class="card"><h2>Most popular minifigures</h2>${rankList(d.topFigs, true)}</div>
+    <div class="card">
+      <h2>Most-wanted pieces</h2>
+      <p class="muted small">Pieces the most people are still looking for.</p>
+      ${d.mostMissing.length ? d.mostMissing.map((x) => `
+        <div class="rank-row">
+          ${thumb(x.img, false)}
+          <div class="grow" style="min-width:0"><div class="sname"><b>${esc(x.name)}</b></div><div class="small muted">${esc(x.colour)}</div></div>
+          <span class="badge miss">${x.people} ${x.people === 1 ? 'person' : 'people'} · ${x.missing} needed</span>
+        </div>`).join('') : '<p class="muted small">Nothing yet.</p>'}
+    </div>
+
+    <h3 class="steps-title">Problem reports</h3>
+    <div class="stat-grid">
+      ${statTile(fmtNum(r.total), 'reports')}
+      ${statTile(fmtNum(r.week), 'this week')}
+    </div>
+    <div class="card">
+      <h2>Latest reports</h2>
+      ${r.recent.length ? r.recent.map((x) => `
+        <div class="report-row">
+          <div class="small muted">${esc(new Date(x.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} · ${esc({ scan: 'Scan', minifig: 'Minifigure', general: 'General' }[x.kind] || x.kind)}${x.wants_reply ? ' · <b>wants a reply</b>' : ''}</div>
+          <div>${x.message ? esc(x.message) : '<span class="muted">(no message)</span>'}</div>
+        </div>`).join('') : '<p class="muted small">No reports yet.</p>'}
+      <p class="muted small">Full details (and reply email addresses) are in Supabase → Table Editor → reports.</p>
+    </div>
+    <p class="muted small center">Only you can see this page.</p>`;
+  bindBarChart('visitChart', v.byDay, visitsOpts);
+  bindBarChart('signupChart', a.byWeek, signupOpts);
+}
+
 /* ---------- Settings ---------- */
 
 function renderSettings() {
@@ -3387,6 +3553,7 @@ function renderSettings() {
       <p class="muted small">Last Brick is free. If it's helped you finish a set, you can say thanks with a small tip.</p>
       <a class="btn primary block" href="${esc(TIP_URL)}" target="_blank" rel="noopener">☕ Buy me a coffee</a>
     </div>` : ''}
+    <div id="statsCard"></div>
     ${syncEnabled() ? `<div class="card">
       <h2>⚑ Report a problem</h2>
       <p class="muted small">Something not working, or a scan got it wrong? Let us know.</p>
@@ -3402,6 +3569,13 @@ function renderSettings() {
     toast(state.apiKey ? 'Key saved' : 'Key removed');
   };
   renderAccountCard();
+  isAdmin().then((yes) => {
+    const card = $('#statsCard');
+    if (!yes || !card) return;
+    card.className = 'card';
+    card.innerHTML = `<h2>📊 Stats</h2><p class="muted small">Visitors, sign-ups, popular sets and problem reports. Only you can see this.</p><button class="btn primary block" id="statsBtn">Open stats</button>`;
+    $('#statsBtn').onclick = () => go('#stats');
+  });
   if ($('#reportGeneral')) {
     $('#reportGeneral').onclick = () => showReportSheet({
       kind: 'general', title: 'Report a problem', context: { page: 'Settings' },
@@ -3546,7 +3720,7 @@ $('#tabs [data-tab="scan"] .ico').innerHTML = scanIcon({ cls: 'tab-svg' });
 $('#backBtn').onclick = () => (history.length > 1 ? history.back() : go('#sets'));
 
 render();
-handleAuthRedirect().then(() => syncNow());
+handleAuthRedirect().then(() => { syncNow(); countVisit(); });
 // Pick up changes from other devices when the app is reopened or back online.
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(); });
 window.addEventListener('online', () => syncNow());

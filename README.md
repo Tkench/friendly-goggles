@@ -34,6 +34,10 @@ Until the function is deployed, the app falls back to a personal Rebrickable key
 
 "Wrong match? Tell us" (after a scan) and Settings → **Report a problem** save reports to a `reports` table, with what the scanner guessed and what the app showed. Run [`supabase/reports.sql`](supabase/reports.sql) in the SQL Editor once; reports then appear under **Table Editor → reports**. Anyone can send a report, but nobody can read them through the app.
 
+## Visit counter and Stats page
+
+The app records one visit per device per day (just the date and three yes/no answers: new visitor, logged in, installed; nothing identifying). Accounts listed in the `admins` table get a **Stats** page under Settings: visitors, sign-ups, popular sets and minifigures, most-wanted pieces and recent problem reports. Run [`supabase/stats.sql`](supabase/stats.sql) once in the SQL Editor (it adds the first admin).
+
 ## Login, backup and sync (optional)
 
 Accounts use [Supabase](https://supabase.com) (free plan). Until it's set up the app works exactly as before, with everything stored on the phone.
